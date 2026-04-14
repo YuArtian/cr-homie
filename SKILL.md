@@ -1,0 +1,192 @@
+---
+name: code-review-master
+description: "Expert code review of git changes with a senior engineer lens. Detects SOLID violations, security risks, race conditions, performance issues, testing gaps, API breaking changes, and proposes actionable improvements. Use when user wants to review code, check code quality, find bugs, security audit, PR review. Triggers: 'review my changes', 'check this code', 'code review', 'find issues', 'is this safe to merge', 'review PR', 'look at my diff', 'what is wrong with this code', 'review this commit', 'check for security issues', 'code quality check'."
+---
+
+# Code Review Master
+
+IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete risk with a realistic scenario, and propose a specific fix. Never output vague advice like "consider improving error handling." Never implement changes without explicit user confirmation.
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<scope>` | What to review (default: unstaged changes). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, or a file path |
+| `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `all` (default: `all`) |
+| `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
+| `--quick` | Quick scan — only P0/P1, skip SOLID and removal analysis |
+
+## Severity Levels
+
+| Level | Name | Description | Action |
+|-------|------|-------------|--------|
+| **P0** | Critical | Security vulnerability, data loss risk, correctness bug | Must block merge |
+| **P1** | High | Logic error, significant SOLID violation, performance regression, missing critical tests | Should fix before merge |
+| **P2** | Medium | Code smell, maintainability concern, minor SOLID violation, test gaps | Fix in this PR or create follow-up |
+| **P3** | Low | Style, naming, minor suggestion | Optional improvement |
+
+## Anti-Patterns (DO NOT)
+
+- ❌ Report vague findings like "this could be improved" without a concrete fix
+- ❌ Inflate severity — a naming issue is P3, not P1
+- ❌ Suggest adding tests for code that already has adequate coverage
+- ❌ Mechanically apply every checklist item — use judgment about relevance
+- ❌ Report the same issue multiple times across different sections
+- ❌ Suggest refactors larger than the change being reviewed
+- ❌ Add findings about unchanged code (unless directly affected by the diff)
+- ❌ Start implementing fixes before user confirms
+
+## Workflow
+
+### 1) Preflight Context ⛔ BLOCKING
+
+Determine review scope based on arguments:
+
+| Input | Command |
+|-------|---------|
+| _(default)_ | `git diff` (unstaged changes) |
+| `staged` | `git diff --cached` |
+| `commit:<hash>` | `git show <hash>` |
+| `pr:<number>` | `gh pr diff <number>` |
+| `branch:<name>` | `git diff main...<name>` |
+| file path | `git diff -- <path>` |
+
+Then:
+1. Run `git diff --stat` (for the determined scope) to get file list and line counts.
+2. If diff is empty → inform user and ask if they meant a different scope.
+3. If diff > 500 lines → summarize by file first, then review in batches by module.
+4. Detect primary language(s) from file extensions for language-specific checks.
+5. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
+6. Identify critical paths: auth, payments, data writes, network, database migrations.
+
+### 2) SOLID + Architecture Smells
+
+> Skip if `--quick` or `--focus` excludes it.
+
+Load `references/solid-checklist.md`.
+
+- Check for SRP, OCP, LSP, ISP, DIP violations in changed code.
+- When proposing a refactor: explain *why* it improves cohesion/coupling and outline a minimal, safe split.
+- If refactor is non-trivial, propose an incremental plan instead of a large rewrite.
+
+### 3) Security and Reliability Scan ⚠️ REQUIRED
+
+Load `references/security-checklist.md`.
+
+- Check for: XSS, injection, SSRF, path traversal, auth gaps, secret leakage, race conditions, unsafe deserialization, weak crypto.
+- For each finding, state both **exploitability** (how easy to trigger) and **impact** (what damage results).
+
+### 4) Code Quality Scan
+
+Load `references/code-quality-checklist.md`.
+
+- Check for: error handling anti-patterns, performance issues (N+1, hot path CPU), boundary conditions (null, empty, off-by-one), concurrency bugs.
+- Flag issues that may cause silent failures or production incidents.
+
+### 5) Testing Quality ⚠️ REQUIRED
+
+Load `references/testing-checklist.md`.
+
+- Are changed code paths covered by tests?
+- Do tests verify behavior, not implementation details?
+- Are edge cases and error paths tested?
+- Any test anti-patterns (flaky, over-mocking, testing private internals)?
+
+### 6) API & Contract Changes _(conditional)_
+
+> Only if diff touches public interfaces, API endpoints, types/schemas, or exported functions.
+
+Load `references/api-contract-checklist.md`.
+
+- Check for: breaking changes, backward compatibility, versioning, documentation updates.
+
+### 7) Removal Candidates _(conditional)_
+
+> Only if diff reveals dead code, deprecated paths, or stale feature flags. Skip if `--quick`.
+
+Load `references/removal-plan.md`.
+
+- Distinguish **safe delete now** vs **defer with plan**.
+- Provide follow-up plan with concrete steps and checkpoints.
+
+### 8) Self-Check ⛔ BLOCKING
+
+Before presenting output, verify:
+
+- [ ] Every finding has exact `file:line` reference
+- [ ] Every finding has a justified severity level
+- [ ] No duplicate findings across sections
+- [ ] No vague suggestions without concrete fix proposals
+- [ ] Severity levels are not inflated (re-check each P0/P1)
+- [ ] Findings about unchanged code are marked as "adjacent risk"
+- [ ] "No issues" sections state what was checked and what wasn't covered
+
+### 9) Output
+
+```markdown
+## Code Review Summary
+
+**Scope**: [what was reviewed]
+**Files reviewed**: X files, Y lines changed
+**Primary language(s)**: [detected]
+**Overall assessment**: [APPROVE / REQUEST_CHANGES / COMMENT]
+
+---
+
+## Findings
+
+### P0 - Critical
+(none or list)
+
+### P1 - High
+1. **[file:line]** Brief title
+   - **Risk**: What goes wrong and how likely
+   - **Fix**: Specific code change or approach
+
+### P2 - Medium
+2. (continue numbering across sections)
+   - ...
+
+### P3 - Low
+...
+
+---
+
+## Removal/Iteration Plan
+(if applicable)
+
+## Not Covered
+(areas outside review scope or requiring manual verification)
+```
+
+**Clean review**: If no issues found, explicitly state what was checked and any residual risks.
+
+### 10) Next Steps Confirmation ⚠️ REQUIRED
+
+```markdown
+---
+
+## Next Steps
+
+I found X issues (P0: _, P1: _, P2: _, P3: _).
+
+**How would you like to proceed?**
+
+1. **Fix all** — I'll implement all suggested fixes
+2. **Fix P0/P1 only** — Address critical and high priority issues
+3. **Fix specific items** — Tell me which issues to fix (by number)
+4. **No changes** — Review complete, no implementation needed
+```
+
+**Do NOT implement any changes until user explicitly confirms.**
+
+## Resources
+
+| File | Purpose | When to Load |
+|------|---------|--------------|
+| `references/solid-checklist.md` | SOLID smell prompts and refactor heuristics | Step 2 |
+| `references/security-checklist.md` | Security, reliability, and race condition checks | Step 3 |
+| `references/code-quality-checklist.md` | Error handling, performance, boundary conditions | Step 4 |
+| `references/testing-checklist.md` | Test quality, coverage, anti-patterns | Step 5 |
+| `references/api-contract-checklist.md` | Breaking changes, compatibility, versioning | Step 6 (conditional) |
+| `references/removal-plan.md` | Deletion candidates and follow-up planning | Step 7 (conditional) |
