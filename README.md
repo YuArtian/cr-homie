@@ -16,10 +16,12 @@ npx skills add YuArtian/cr-homie
 - **Error Handling** — Swallowed exceptions, async errors, missing boundaries
 - **Boundary Conditions** — Null handling, empty collections, off-by-one, numeric limits
 - **Testing Quality** — Coverage gaps, test anti-patterns, over-mocking, flaky tests
-- **Frontend Quality** — Accessibility, rendering performance, bundle size, CSS, state management, i18n
+- **Frontend Quality** — Code principles (KISS, FP, DRY, YAGNI, Clean Architecture), a11y, rendering perf, bundle, CSS, state, i18n
+- **Fake Data Detection** — Hardcoded mock data, placeholder content, stub features flagged as P0/P1
 - **API Contracts** — Breaking changes, backward compatibility, versioning
 - **Removal Planning** — Identify dead code with safe deletion plans
 - **Observability** — Logging gaps, missing metrics, alerting blind spots
+- **Page Verification** — Runtime validation via Chrome DevTools MCP: Lighthouse, console errors, network inspection, visual checks
 
 ## How It Works
 
@@ -34,23 +36,21 @@ npx skills add YuArtian/cr-homie
 ### Workflow
 
 ```
-git diff → Preflight → Review Steps → Self-Check → Output → User Confirms → (optional) Fix
-              │                                        │
-              ├─ detect scope, language, critical paths │
-              │                                        ├─ verify every finding has file:line
-              │        ┌───────────────────────┐       ├─ verify severity is justified
-              │        │    Review Steps        │       └─ verify no duplicates
-              │        ├───────────────────────┤
-              │        │ SOLID + Architecture   │
-              │        │ Security Scan ⚠️       │
-              │        │ Code Quality           │
-              │        │ Testing Quality ⚠️     │
+git diff → Preflight → Review Steps → Self-Check → Page Verify? → Output → User Confirms
+              │                                        │              │
+              ├─ detect scope, language, critical paths │              ├─ Lighthouse audit
+              │                                        │              ├─ console errors
+              │        ┌───────────────────────┐       │              ├─ fake data detection
+              │        │    Review Steps        │       │              ├─ a11y tree check
+              │        ├───────────────────────┤       │              └─ visual + responsive
+              │        │ SOLID + Architecture   │       │
+              │        │ Security Scan ⚠️       │       ├─ verify file:line on every finding
+              │        │ Code Quality           │       ├─ verify severity is justified
+              │        │ Testing Quality ⚠️     │       └─ verify no duplicates
               │        │ Frontend Quality (if)  │
               │        │ API Contracts (if hit) │
               │        │ Removal Plan (if hit)  │
               │        └───────────────────────┘
-              │
-              └─ large diff (>500 lines)? batch by module
 ```
 
 1. **Preflight** ⛔ — Run `git diff` (or specified scope) to collect changed files, detect language(s), identify critical paths (auth, payments, data writes). If diff is empty, prompt user. If >500 lines, batch by module.
@@ -58,12 +58,13 @@ git diff → Preflight → Review Steps → Self-Check → Output → User Confi
 3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage. Report both exploitability and impact.
 4. **Code Quality** — Load `code-quality-checklist.md`. Check error handling anti-patterns, N+1 queries, hot path CPU, boundary conditions (null, empty, off-by-one), observability gaps.
 5. **Testing Quality** ⚠️ — Load `testing-checklist.md`. Check if changed paths have tests, whether tests verify behavior (not implementation), flag over-mocking and flaky tests.
-6. **Frontend Quality** _(conditional)_ — Load `frontend-checklist.md` when diff contains frontend files (`.tsx`, `.vue`, `.svelte`, `.css`, etc.). Check accessibility, rendering performance, bundle size, CSS issues, state management, i18n.
+6. **Frontend Quality** _(conditional)_ — Load `frontend-checklist.md` when diff contains frontend files. Apply code principles (KISS, FP, DRY, YAGNI, Clean Architecture). Check fake data (P0/P1), a11y, rendering perf, bundle, CSS, state, i18n.
 7. **API Contracts** _(conditional)_ — Load `api-contract-checklist.md` only when diff touches public interfaces, endpoints, or exported types. Check breaking changes and backward compatibility.
 8. **Removal Candidates** _(conditional)_ — Load `removal-plan.md` only when diff reveals dead code or stale feature flags. Distinguish safe-delete-now vs defer-with-plan.
 9. **Self-Check** ⛔ — Validate all findings before output: every finding has `file:line`, severity is justified, no duplicates, no vague suggestions.
-10. **Output** — Structured report grouped by severity (P0–P3).
-11. **Confirmation** ⚠️ — Present options: fix all / fix P0-P1 only / fix specific items / no changes. Do nothing until user confirms.
+10. **Page Verification** _(conditional)_ — Load `page-verification-guide.md` when `--verify` is set. Navigate to `--url`, run Lighthouse, check console errors, detect fake data via network/runtime, take screenshots for desktop + mobile, check dark mode.
+11. **Output** — Structured report grouped by severity (P0–P3), plus page verification results if applicable.
+12. **Confirmation** ⚠️ — Present options: fix all / fix P0-P1 only / fix specific items / no changes. Do nothing until user confirms.
 
 > ⛔ = BLOCKING (must complete before proceeding) · ⚠️ = REQUIRED (must not skip)
 
@@ -75,7 +76,9 @@ git diff → Preflight → Review Steps → Self-Check → Output → User Confi
 /cr-homie commit:abc123          # Review a specific commit
 /cr-homie pr:42                  # Review a PR
 /cr-homie --focus security       # Focus on security only
+/cr-homie --focus frontend       # Focus on frontend quality
 /cr-homie --quick                # Quick scan (P0/P1 only)
+/cr-homie --verify --url http://localhost:3000  # Code review + page verification
 ```
 
 ### Parameters
@@ -86,6 +89,8 @@ git diff → Preflight → Review Steps → Self-Check → Output → User Confi
 | `--focus <area>` | Limit to: `security`, `solid`, `performance`, `quality`, `testing`, `frontend`, `api`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
 | `--quick` | Only report P0/P1, skip SOLID and removal analysis | off |
+| `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url`) | off |
+| `--url <url>` | Dev server URL for page verification | — |
 
 ## Output Example
 
@@ -147,12 +152,50 @@ cr-homie/
     ├── security-checklist.md            # OWASP risks, race conditions, crypto, supply chain
     ├── code-quality-checklist.md        # Error handling, N+1, caching, boundaries, observability
     ├── testing-checklist.md             # Coverage, test quality, anti-patterns
-    ├── frontend-checklist.md            # a11y, rendering perf, bundle, CSS, state, i18n
+    ├── frontend-checklist.md            # Code principles + a11y, perf, bundle, CSS, state, i18n
     ├── api-contract-checklist.md        # Breaking changes, backward compat, versioning
-    └── removal-plan.md                  # Safe-delete vs defer-with-plan templates
+    ├── removal-plan.md                  # Safe-delete vs defer-with-plan templates
+    └── page-verification-guide.md       # Chrome DevTools MCP verification procedures
 ```
 
 The `references/` directory serves as a **progressive knowledge base** — each file is only loaded into context when its corresponding workflow step executes, keeping token usage efficient.
+
+## Page Verification (Chrome DevTools MCP)
+
+When `--verify --url <url>` is provided, CR Homie goes beyond static code review and validates the running page:
+
+```bash
+/cr-homie --verify --url http://localhost:5173
+```
+
+**Prerequisite**: Install Chrome DevTools MCP server:
+
+```bash
+claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+```
+
+**What it checks**:
+
+| Check | How | Severity |
+|-------|-----|----------|
+| Console errors | `list_console_messages` filter error/warn | Uncaught error = P0, framework warning = P1 |
+| Fake data | `list_network_requests` + `evaluate_script` | Mock URLs / placeholder text = P1 |
+| Accessibility | `lighthouse_audit` + `take_snapshot` (a11y tree) | Score < 50 = P1, missing labels = P2 |
+| Visual layout | `take_screenshot` desktop + mobile (375px) | Overflow / broken layout = P2 |
+| Dark mode | `emulate` colorScheme: dark | Invisible text / hardcoded colors = P2 |
+| Performance | `performance_start_trace` (optional) | LCP > 2.5s = P1, CLS > 0.25 = P1 |
+
+## Frontend Code Principles
+
+When reviewing frontend code, CR Homie applies these principles (detailed checks in `frontend-checklist.md`):
+
+1. **KISS** — Delete what can be deleted. Most direct implementation wins.
+2. **Component SRP** — One component = one reason to change. Componentize, but don't over-split.
+3. **Functional Programming** — Business logic stays pure. Side effects live at the edges (hooks, event handlers).
+4. **DRY** — Extract shared patterns at the third occurrence. Two is coincidence, three is a pattern.
+5. **Clean Architecture** — Naming as documentation. Reading the code reveals intent without comments.
+6. **YAGNI** — Build for today's requirements. No speculative abstractions.
+7. **Production Readiness** ⚠️ — No fake data, no mock URLs, no stub features in production code (P0/P1).
 
 ## License
 

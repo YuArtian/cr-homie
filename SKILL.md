@@ -15,6 +15,8 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 | `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `frontend`, `all` (default: `all`) |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
 | `--quick` | Quick scan — only P0/P1, skip SOLID and removal analysis |
+| `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url`) |
+| `--url <url>` | Dev server URL for page verification (e.g., `http://localhost:3000`) |
 
 ## Severity Levels
 
@@ -35,6 +37,7 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 - ❌ Suggest refactors larger than the change being reviewed
 - ❌ Add findings about unchanged code (unless directly affected by the diff)
 - ❌ Start implementing fixes before user confirms
+- ❌ Ignore fake data / mock URLs / placeholder content in non-test code — always flag as P0/P1
 
 ## Workflow
 
@@ -99,6 +102,9 @@ Load `references/testing-checklist.md`.
 
 Load `references/frontend-checklist.md`.
 
+First, apply the **Frontend Code Principles** (KISS, Component SRP, FP, DRY, Clean Architecture, YAGNI, Production Readiness) to evaluate code structure and design quality. Then check specific areas:
+
+- **Production Readiness** ⚠️: Fake data, mock URLs, placeholder content, stub features — flag as P0/P1.
 - Accessibility: missing alt text, keyboard navigation, ARIA attributes, focus management.
 - Rendering performance: unnecessary re-renders, missing memoization, large lists without virtualization, memory leaks.
 - Bundle size: full library imports, missing code splitting, dev-only code in production.
@@ -135,7 +141,24 @@ Before presenting output, verify:
 - [ ] Findings about unchanged code are marked as "adjacent risk"
 - [ ] "No issues" sections state what was checked and what wasn't covered
 
-### 10) Output
+### 10) Page-Level Verification _(conditional)_
+
+> Only if `--verify` and `--url` are provided. Requires Chrome DevTools MCP.
+
+Load `references/page-verification-guide.md`.
+
+1. Navigate to the provided URL.
+2. **Console errors**: Capture errors/warnings — uncaught exceptions are P0, framework warnings are P1.
+3. **Fake data detection**: Inspect network requests for `localhost`/mock URLs; evaluate runtime for mock flags and placeholder text.
+4. **Lighthouse audit**: Run a11y + best practices snapshot — score < 50 is P1, 50-89 is P2.
+5. **A11y tree snapshot**: Check semantic structure, missing labels, heading hierarchy.
+6. **Visual check**: Desktop screenshot + mobile viewport (375px) — check layout overflow, broken images, blank sections.
+7. **Dark mode** _(if applicable)_: Emulate dark color scheme, check for invisible text or hardcoded colors.
+8. **Performance trace** _(optional)_: Only if page feels slow — report LCP, INP, CLS.
+
+Append results to the main review output as a "Page Verification Results" section.
+
+### 11) Output
 
 ```markdown
 ## Code Review Summary
@@ -175,7 +198,7 @@ Before presenting output, verify:
 
 **Clean review**: If no issues found, explicitly state what was checked and any residual risks.
 
-### 11) Next Steps Confirmation ⚠️ REQUIRED
+### 12) Next Steps Confirmation ⚠️ REQUIRED
 
 ```markdown
 ---
@@ -202,6 +225,7 @@ I found X issues (P0: _, P1: _, P2: _, P3: _).
 | `references/security-checklist.md` | Security, reliability, and race condition checks | Step 3 |
 | `references/code-quality-checklist.md` | Error handling, performance, boundary conditions | Step 4 |
 | `references/testing-checklist.md` | Test quality, coverage, anti-patterns | Step 5 |
-| `references/frontend-checklist.md` | a11y, rendering perf, bundle, CSS, state, i18n | Step 6 (conditional) |
+| `references/frontend-checklist.md` | Code principles, a11y, perf, bundle, CSS, state, i18n | Step 6 (conditional) |
 | `references/api-contract-checklist.md` | Breaking changes, compatibility, versioning | Step 7 (conditional) |
 | `references/removal-plan.md` | Deletion candidates and follow-up planning | Step 8 (conditional) |
+| `references/page-verification-guide.md` | Chrome DevTools MCP page-level verification | Step 10 (conditional, `--verify`) |
