@@ -11,7 +11,7 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 
 | Argument | Description |
 |----------|-------------|
-| `<scope>` | What to review (default: unstaged changes). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, or a file path |
+| `<scope>` | What to review (default: unstaged changes). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or a file path |
 | `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `frontend`, `all` (default: `all`) |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
 | `--quick` | Quick scan — only P0/P1, skip SOLID and removal analysis |
@@ -53,6 +53,8 @@ Determine review scope based on arguments:
 | `pr:<number>` | `gh pr diff <number>` |
 | `branch:<name>` | `git diff main...<name>` |
 | file path | `git diff -- <path>` |
+| `project` | Full project scan (all source files in working directory) |
+| `project:<path>` | Full project scan limited to `<path>` subdirectory |
 
 Then:
 1. Run `git diff --stat` (for the determined scope) to get file list and line counts.
@@ -62,6 +64,42 @@ Then:
 5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark as frontend-relevant for Step 6.
 6. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
 7. Identify critical paths: auth, payments, data writes, network, database migrations.
+
+#### Project Scope — Full Project Scan
+
+When scope is `project` or `project:<path>`:
+
+1. This mode reviews **all source files** in the project (or specified subdirectory), not just git changes.
+2. Use `find` + file extension filters to collect source files. Respect `.gitignore` — exclude `node_modules`, `dist`, `build`, `.git`, vendor directories, generated files, lock files, and binary assets.
+3. Group files by top-level directory (module), count files and estimate total lines per module.
+4. **Confirmation gate** ⛔ BLOCKING — Before scanning, present the user with a summary and ask for explicit confirmation. Use the following format:
+
+   ```markdown
+   ## Project Scan Preview
+
+   **Target**: [working directory or specified path]
+   **Total**: X source files, ~Y lines across Z modules
+
+   | Module | Files | ~Lines | Languages |
+   |--------|-------|--------|-----------|
+   | src/components/ | 42 | ~3,200 | TypeScript, TSX |
+   | src/services/ | 15 | ~1,800 | TypeScript |
+   | src/utils/ | 8 | ~600 | TypeScript |
+   | ... | ... | ... | ... |
+
+   ⚠️ Full project scan will review all listed files. This may take a while for large projects.
+
+   **How would you like to proceed?**
+
+   1. **Scan all** — Review all modules listed above
+   2. **Select modules** — Tell me which modules to include/exclude
+   3. **Cancel** — Abort project scan
+   ```
+
+5. Wait for user confirmation. Do NOT proceed without it.
+6. After confirmation, review in batches by module. Each module batch follows Steps 2–9 as normal, reading full file contents instead of diffs.
+7. For project scan, the Anti-Pattern rule "Add findings about unchanged code" does NOT apply — all code is in scope.
+8. Accumulate findings across all batches and present a single unified report in Step 11.
 
 ### 2) SOLID + Architecture Smells
 

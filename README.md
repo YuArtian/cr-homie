@@ -53,7 +53,7 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
               │        └───────────────────────┘
 ```
 
-1. **Preflight** ⛔ — Run `git diff` (or specified scope) to collect changed files, detect language(s), identify critical paths (auth, payments, data writes). If diff is empty, prompt user. If >500 lines, batch by module.
+1. **Preflight** ⛔ — Run `git diff` (or specified scope) to collect changed files, detect language(s), identify critical paths (auth, payments, data writes). If diff is empty, prompt user. If >500 lines, batch by module. For `project` scope: scan all source files, group by module, show a summary table with file counts and line estimates, and **ask user to confirm** before proceeding (user can select specific modules or cancel).
 2. **SOLID + Architecture** — Load `solid-checklist.md`. Check for SRP/OCP/LSP/ISP/DIP violations. Propose incremental refactors, not rewrites.
 3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage. Report both exploitability and impact.
 4. **Code Quality** — Load `code-quality-checklist.md`. Check error handling anti-patterns, N+1 queries, hot path CPU, boundary conditions (null, empty, off-by-one), observability gaps.
@@ -75,6 +75,8 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 /cr-homie staged                 # Review staged changes
 /cr-homie commit:abc123          # Review a specific commit
 /cr-homie pr:42                  # Review a PR
+/cr-homie project                # Full project scan (all source files)
+/cr-homie project:src/           # Scan only src/ directory
 /cr-homie --focus security       # Focus on security only
 /cr-homie --focus frontend       # Focus on frontend quality
 /cr-homie --quick                # Quick scan (P0/P1 only)
@@ -85,7 +87,7 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `<scope>` | What to review: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, or file path | unstaged changes |
+| `<scope>` | What to review: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | unstaged changes |
 | `--focus <area>` | Limit to: `security`, `solid`, `performance`, `quality`, `testing`, `frontend`, `api`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
 | `--quick` | Only report P0/P1, skip SOLID and removal analysis | off |
