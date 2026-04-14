@@ -12,7 +12,7 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 | Argument | Description |
 |----------|-------------|
 | `<scope>` | What to review (default: unstaged changes). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, or a file path |
-| `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `all` (default: `all`) |
+| `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `frontend`, `all` (default: `all`) |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
 | `--quick` | Quick scan — only P0/P1, skip SOLID and removal analysis |
 
@@ -56,8 +56,9 @@ Then:
 2. If diff is empty → inform user and ask if they meant a different scope.
 3. If diff > 500 lines → summarize by file first, then review in batches by module.
 4. Detect primary language(s) from file extensions for language-specific checks.
-5. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
-6. Identify critical paths: auth, payments, data writes, network, database migrations.
+5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark as frontend-relevant for Step 6.
+6. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
+7. Identify critical paths: auth, payments, data writes, network, database migrations.
 
 ### 2) SOLID + Architecture Smells
 
@@ -92,7 +93,20 @@ Load `references/testing-checklist.md`.
 - Are edge cases and error paths tested?
 - Any test anti-patterns (flaky, over-mocking, testing private internals)?
 
-### 6) API & Contract Changes _(conditional)_
+### 6) Frontend Quality _(conditional)_
+
+> Only if Preflight detected frontend files, or `--focus frontend`.
+
+Load `references/frontend-checklist.md`.
+
+- Accessibility: missing alt text, keyboard navigation, ARIA attributes, focus management.
+- Rendering performance: unnecessary re-renders, missing memoization, large lists without virtualization, memory leaks.
+- Bundle size: full library imports, missing code splitting, dev-only code in production.
+- CSS/styling: z-index wars, missing responsive handling, layout overflow issues.
+- State management: prop drilling, derived state stored separately, missing loading/error states.
+- i18n: hardcoded strings, string concatenation for sentences, text overflow with translations.
+
+### 7) API & Contract Changes _(conditional)_
 
 > Only if diff touches public interfaces, API endpoints, types/schemas, or exported functions.
 
@@ -100,7 +114,7 @@ Load `references/api-contract-checklist.md`.
 
 - Check for: breaking changes, backward compatibility, versioning, documentation updates.
 
-### 7) Removal Candidates _(conditional)_
+### 8) Removal Candidates _(conditional)_
 
 > Only if diff reveals dead code, deprecated paths, or stale feature flags. Skip if `--quick`.
 
@@ -109,7 +123,7 @@ Load `references/removal-plan.md`.
 - Distinguish **safe delete now** vs **defer with plan**.
 - Provide follow-up plan with concrete steps and checkpoints.
 
-### 8) Self-Check ⛔ BLOCKING
+### 9) Self-Check ⛔ BLOCKING
 
 Before presenting output, verify:
 
@@ -121,7 +135,7 @@ Before presenting output, verify:
 - [ ] Findings about unchanged code are marked as "adjacent risk"
 - [ ] "No issues" sections state what was checked and what wasn't covered
 
-### 9) Output
+### 10) Output
 
 ```markdown
 ## Code Review Summary
@@ -161,7 +175,7 @@ Before presenting output, verify:
 
 **Clean review**: If no issues found, explicitly state what was checked and any residual risks.
 
-### 10) Next Steps Confirmation ⚠️ REQUIRED
+### 11) Next Steps Confirmation ⚠️ REQUIRED
 
 ```markdown
 ---
@@ -188,5 +202,6 @@ I found X issues (P0: _, P1: _, P2: _, P3: _).
 | `references/security-checklist.md` | Security, reliability, and race condition checks | Step 3 |
 | `references/code-quality-checklist.md` | Error handling, performance, boundary conditions | Step 4 |
 | `references/testing-checklist.md` | Test quality, coverage, anti-patterns | Step 5 |
-| `references/api-contract-checklist.md` | Breaking changes, compatibility, versioning | Step 6 (conditional) |
-| `references/removal-plan.md` | Deletion candidates and follow-up planning | Step 7 (conditional) |
+| `references/frontend-checklist.md` | a11y, rendering perf, bundle, CSS, state, i18n | Step 6 (conditional) |
+| `references/api-contract-checklist.md` | Breaking changes, compatibility, versioning | Step 7 (conditional) |
+| `references/removal-plan.md` | Deletion candidates and follow-up planning | Step 8 (conditional) |
