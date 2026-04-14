@@ -4,8 +4,22 @@ A comprehensive code review skill for AI agents. Performs structured reviews wit
 
 ## Installation
 
+### From GitHub
+
 ```bash
-npx skills add <your-repo> --path .
+npx skills add <your-github-user>/cr-homie
+```
+
+### From GitLab (or any Git host)
+
+```bash
+git clone <repo-url> ~/.claude/skills/cr-homie
+```
+
+### Local development
+
+```bash
+ln -s /path/to/cr-homie ~/.claude/skills/cr-homie
 ```
 
 ## Features
@@ -24,22 +38,22 @@ npx skills add <your-repo> --path .
 
 ```bash
 # Review unstaged changes (default)
-/code-review-master
+/cr-homie
 
 # Review staged changes
-/code-review-master staged
+/cr-homie staged
 
 # Review a specific commit
-/code-review-master commit:abc123
+/cr-homie commit:abc123
 
 # Review a PR
-/code-review-master pr:42
+/cr-homie pr:42
 
 # Focus on security only
-/code-review-master --focus security
+/cr-homie --focus security
 
 # Quick scan (P0/P1 only)
-/code-review-master --quick
+/cr-homie --quick
 ```
 
 ## Workflow
@@ -67,7 +81,7 @@ npx skills add <your-repo> --path .
 ## Structure
 
 ```
-code-review-master/
+cr-homie/
 ├── SKILL.md                             # Main skill definition
 ├── agents/
 │   └── agent.yaml                       # Agent interface config
@@ -82,7 +96,7 @@ code-review-master/
 
 ## Improvements over code-review-expert
 
-| Area | code-review-expert | code-review-master |
+| Area | code-review-expert | cr-homie |
 |------|--------------------|--------------------|
 | Iron Law | None | Enforces concrete `file:line` + fix for every finding |
 | Parameters | Fixed scope only | `--focus`, `--quick`, `--min-severity`, flexible scope |

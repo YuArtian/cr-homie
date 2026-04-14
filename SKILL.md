@@ -1,5 +1,5 @@
 ---
-name: code-review-master
+name: cr-homie
 description: "Expert code review of git changes with a senior engineer lens. Detects SOLID violations, security risks, race conditions, performance issues, testing gaps, API breaking changes, and proposes actionable improvements. Use when user wants to review code, check code quality, find bugs, security audit, PR review. Triggers: 'review my changes', 'check this code', 'code review', 'find issues', 'is this safe to merge', 'review PR', 'look at my diff', 'what is wrong with this code', 'review this commit', 'check for security issues', 'code quality check'."
 ---
 

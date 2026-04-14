@@ -1,5 +1,5 @@
 interface:
-  display_name: "Code Review Master"
+  display_name: "CR Homie"
   short_description: "Senior engineer code review: SOLID, security, performance, testing, API contracts, error handling, race conditions"
   default_prompt: "Review current git changes for SOLID violations, security risks, race conditions, error handling issues, performance problems, testing gaps, API breaking changes, and boundary condition bugs."
 
