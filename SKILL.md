@@ -57,6 +57,7 @@ Determine review scope based on arguments:
 | `project:<path>` | Full project scan limited to `<path>` subdirectory |
 
 Then:
+
 1. Run `git diff --stat` (for the determined scope) to get file list and line counts.
 2. If diff is empty → inform user and ask if they meant a different scope.
 3. If diff > 500 lines → summarize by file first, then review in batches by module.
@@ -70,7 +71,20 @@ Then:
 When scope is `project` or `project:<path>`:
 
 1. This mode reviews **all source files** in the project (or specified subdirectory), not just git changes.
-2. Use `find` + file extension filters to collect source files. Respect `.gitignore` — exclude `node_modules`, `dist`, `build`, `.git`, vendor directories, generated files, lock files, and binary assets.
+2. Use `find` + file extension filters to collect source files. Respect `.gitignore` and exclude the following directories:
+
+   | Category | Excluded directories |
+   |----------|---------------------|
+   | **Dependencies** | `node_modules`, `vendor`, `bower_components` |
+   | **Build outputs** | `dist`, `build`, `out`, `.output`, `target`, `bin`, `obj` |
+   | **Framework artifacts** | `.next`, `.nuxt`, `.svelte-kit`, `.expo`, `storybook-static` |
+   | **Tool caches** | `.cache`, `.turbo`, `.parcel-cache`, `.vite` |
+   | **Test/coverage** | `coverage`, `.nyc_output` |
+   | **Python** | `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.venv`, `venv`, `.tox` |
+   | **VCS/IDE** | `.git`, `.idea`, `.vscode` |
+   | **Deployment** | `.vercel`, `.netlify` |
+
+   Also exclude: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries).
 3. Group files by top-level directory (module), count files and estimate total lines per module.
 4. **Confirmation gate** ⛔ BLOCKING — Before scanning, present the user with a summary and ask for explicit confirmation. Use the following format:
 
@@ -108,7 +122,7 @@ When scope is `project` or `project:<path>`:
 Load `references/solid-checklist.md`.
 
 - Check for SRP, OCP, LSP, ISP, DIP violations in changed code.
-- When proposing a refactor: explain *why* it improves cohesion/coupling and outline a minimal, safe split.
+- When proposing a refactor: explain _why_ it improves cohesion/coupling and outline a minimal, safe split.
 - If refactor is non-trivial, propose an incremental plan instead of a large rewrite.
 
 ### 3) Security and Reliability Scan ⚠️ REQUIRED
