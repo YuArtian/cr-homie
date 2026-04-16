@@ -47,7 +47,7 @@ Determine review scope based on arguments:
 
 | Input | Command |
 |-------|---------|
-| _(default)_ | `git diff` (unstaged changes) |
+| _(default)_ | **Smart detection** (see below) |
 | `staged` | `git diff --cached` |
 | `commit:<hash>` | `git show <hash>` |
 | `pr:<number>` | `gh pr diff <number>` |
@@ -56,11 +56,21 @@ Determine review scope based on arguments:
 | `project` | Full project scan (all source files in working directory) |
 | `project:<path>` | Full project scan limited to `<path>` subdirectory |
 
+**Smart detection** (when no scope argument is provided): Run these checks in order, use the first one that has content:
+
+1. `git diff` — unstaged changes exist? → use unstaged diff
+2. `git diff --cached` — staged changes exist? → use staged diff
+3. `git diff main...HEAD` — current branch ahead of main? → use branch diff
+4. All empty → inform user "没有检测到可 review 的内容", suggest `project` mode or specifying a scope explicitly
+
 Then:
 
 1. Run `git diff --stat` (for the determined scope) to get file list and line counts.
 2. If diff is empty → inform user and ask if they meant a different scope.
-3. If diff > 500 lines → summarize by file first, then review in batches by module.
+3. **Large input handling**: If diff > 2000 lines OR touches > 15 files, use two-pass review:
+   - **Pass 1 (Quick scan)**: Skim all changes, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list with file:line and one-line reason. Do NOT produce findings yet.
+   - **Pass 2 (Deep review)**: For each hotspot, read the relevant code in detail, apply Steps 2–8 with full context expansion. Only this pass produces findings.
+   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1 and go directly to deep review.
 4. Detect primary language(s) from file extensions for language-specific checks.
 5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark as frontend-relevant for Step 6.
 6. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
@@ -116,9 +126,21 @@ When scope is `project` or `project:<path>`:
    ```
 
 5. Wait for user confirmation. Do NOT proceed without it.
-6. After confirmation, review in batches by module. Each module batch follows Steps 2–9 as normal, reading full file contents instead of diffs.
+6. After confirmation, apply the two-pass review strategy:
+   - **Pass 1 (Quick scan)**: Skim all modules, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list only.
+   - **Pass 2 (Deep review)**: For each hotspot, read full file contents, apply Steps 2–9 with context expansion. Only this pass produces findings.
 7. For project scan, the Anti-Pattern rule "Add findings about unchanged code" does NOT apply — all code is in scope.
 8. Accumulate findings across all batches and present a single unified report in Step 11.
+
+### ⚠️ Universal Rule: Verify Before Reporting
+
+Applies to ALL review steps (2–8). For every potential finding, **verify context before including it in the report**:
+
+1. Use `rg`/`grep` to check callers, dependents, and related configuration.
+2. Read surrounding code to confirm the issue is real, not mitigated by existing safeguards.
+3. Only report findings that survive verification. If context disproves the issue, drop it silently.
+
+This rule transforms the review from pattern-matching to verified analysis. A finding without verified context is not a finding.
 
 ### 2) SOLID + Architecture Smells
 
@@ -136,6 +158,7 @@ Load `references/security-checklist.md`.
 
 - Check for: XSS, injection, SSRF, path traversal, auth gaps, secret leakage, race conditions, unsafe deserialization, weak crypto.
 - For each finding, state both **exploitability** (how easy to trigger) and **impact** (what damage results).
+- After completing checklist items, ask: **"Based on my overall understanding of this code, are there risks the checklist didn't cover?"** — report any additional findings found through reasoning.
 
 ### 4) Code Quality Scan
 
@@ -143,6 +166,7 @@ Load `references/code-quality-checklist.md`.
 
 - Check for: error handling anti-patterns, performance issues (N+1, hot path CPU), boundary conditions (null, empty, off-by-one), concurrency bugs.
 - Flag issues that may cause silent failures or production incidents.
+- After completing checklist items, ask: **"Based on my overall understanding of this code, are there quality risks the checklist didn't cover?"**
 
 ### 5) Testing Quality ⚠️ REQUIRED
 
@@ -152,6 +176,7 @@ Load `references/testing-checklist.md`.
 - Do tests verify behavior, not implementation details?
 - Are edge cases and error paths tested?
 - Any test anti-patterns (flaky, over-mocking, testing private internals)?
+- After completing checklist items, ask: **"Based on my overall understanding of this code, are there testing gaps the checklist didn't cover?"**
 
 ### 6) Frontend Quality _(conditional)_
 
@@ -236,6 +261,10 @@ Append results to the main review output as a "Page Verification Results" sectio
 1. **[file:line]** Brief title
    - **Risk**: What goes wrong and how likely
    - **Fix**: Specific code change or approach
+
+> **Security findings** that claim external exploitability MUST include two additional fields:
+> - **Attack path**: Entry point → framework/middleware handling → vulnerable code (trace the full chain)
+> - **Confidence**: `Confirmed exploitable` / `Defense-in-depth gap` (framework blocks but code lacks protection) / `Needs verification`
 
 ### P2 - Medium
 2. (continue numbering across sections)

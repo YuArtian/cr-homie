@@ -11,7 +11,7 @@ npx skills add YuArtian/cr-homie
 ## 功能特性
 
 - **SOLID 原则** — 检测 SRP、OCP、LSP、ISP、DIP 违反，提供重构建议
-- **安全扫描** — XSS、注入攻击、SSRF、竞态条件、认证缺陷、密钥泄露、包管理器一致性
+- **安全扫描** — XSS、注入攻击、SSRF、竞态条件、认证缺陷、密钥泄露、包管理器一致性。**攻击链验证**：追溯入口点 → 框架/中间件 → 漏洞代码，确认可利用性后再报告
 - **性能检查** — N+1 查询、CPU 热点、缺失缓存、内存问题
 - **错误处理** — 吞异常、异步错误未捕获、缺失错误边界
 - **边界条件** — 空值处理、空集合、off-by-one、数值越界
@@ -29,6 +29,7 @@ npx skills add YuArtian/cr-homie
 
 - **审查优先** — 仅输出发现，不自动修改代码，直到你明确确认
 - **铁律（Iron Law）** — 每条发现必须标注 `file:line`，解释具体风险，提出明确修复方案。不允许模糊建议
+- **验证后报告** — 每条发现必须验证上下文（调用方、路由定义、配置等）后才能纳入报告。仅匹配模式不足以成为 finding
 - **渐进加载** — 参考清单按工作流步骤按需加载，不会一次性全部占用上下文
 - **条件步骤** — 前端质量、API 契约检查、移除计划仅在 diff 涉及相关代码时激活
 - **反模式防护** — 明确规则防止严重程度膨胀、重复发现和超范围建议
@@ -53,9 +54,9 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
               │     └──────────────────┘
 ```
 
-1. **预检** ⛔ — 执行 `git diff`（或指定范围）收集变更文件，检测语言，识别关键路径（认证、支付、数据写入）。diff 为空则提示用户，超过 500 行则按模块分批。`project` 模式下：扫描所有源文件，按模块分组，展示文件数和行数汇总表，**必须等待用户确认**后才开始审查（用户可选择扫描全部、指定模块或取消）。
+1. **预检** ⛔ — **智能探测**：未指定范围时，自动按 unstaged → staged → 分支 diff 优先级探测（使用第一个有内容的）。收集变更文件，检测语言，识别关键路径（认证、支付、数据写入）。diff 为空则建议使用 `project` 模式。超过 2000 行或 15 个文件时，采用**两轮扫描**（第一轮：快扫标记热点；第二轮：聚焦深度 review + 上下文扩展）。`project` 模式同样采用两轮策略——先快扫所有模块，再逐个热点深度审查。
 2. **SOLID + 架构** — 加载 `solid-checklist.md`。检查 SRP/OCP/LSP/ISP/DIP 违反，提出渐进式重构方案。
-3. **安全扫描** ⚠️ — 加载 `security-checklist.md`。检查 XSS、注入、SSRF、认证缺陷、竞态条件、密钥泄露、包管理器一致性（lock 文件冲突、packageManager 字段不匹配、Dockerfile 不一致）。同时报告可利用性和影响范围。
+3. **安全扫描** ⚠️ — 加载 `security-checklist.md`。检查 XSS、注入、SSRF、认证缺陷、竞态条件、密钥泄露、包管理器一致性。**验证攻击链**：每个安全发现追溯外部入口 → 框架层处理 → 漏洞代码，标注置信度为 `已确认可利用`、`防御纵深缺失` 或 `需进一步验证`。
 4. **代码质量** — 加载 `code-quality-checklist.md`。检查错误处理反模式、N+1 查询、热路径 CPU、边界条件（null、空集合、off-by-one）、可观测性缺失。
 5. **测试质量** ⚠️ — 加载 `testing-checklist.md`。检查变更代码是否有测试覆盖，测试是否验证行为（而非实现细节），标记过度 mock 和不稳定测试。
 6. **前端质量** _(条件)_ — 加载 `frontend-checklist.md`，当 diff 包含前端文件时激活。应用编码原则（KISS、函数式、DRY、YAGNI、整洁架构）。检查假数据（P0/P1）、无障碍、渲染性能、Bundle 体积、CSS、状态管理、国际化。
@@ -71,7 +72,7 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 ## 使用方法
 
 ```bash
-/cr-homie                        # 审查未暂存的变更（默认）
+/cr-homie                        # 智能探测：unstaged → staged → 分支 diff
 /cr-homie staged                 # 审查已暂存的变更
 /cr-homie commit:abc123          # 审查指定 commit
 /cr-homie pr:42                  # 审查 PR
@@ -87,7 +88,7 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `<scope>` | 审查范围：`staged`、`commit:<hash>`、`pr:<number>`、`branch:<name>`、`project[:<path>]` 或文件路径 | 未暂存变更 |
+| `<scope>` | 审查范围：`staged`、`commit:<hash>`、`pr:<number>`、`branch:<name>`、`project[:<path>]` 或文件路径 | 智能探测 |
 | `--focus <area>` | 聚焦领域：`security`、`solid`、`performance`、`quality`、`testing`、`frontend`、`api`、`all` | `all` |
 | `--min-severity <level>` | 最低报告级别：`P0`、`P1`、`P2`、`P3` | `P3` |
 | `--quick` | 仅报告 P0/P1，跳过 SOLID 和移除分析 | 关闭 |
@@ -113,16 +114,24 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 
 ### P1 - 高危
 1. **src/auth/login.ts:42** SQL 注入 — 字符串拼接构造查询
+   - **攻击路径**: `POST /api/login` → Express 路由 `req.body.username` → `login()` → 原始 SQL 拼接
    - **风险**: 攻击者可通过构造用户名输入提取/篡改数据库
+   - **置信度**: 已确认可利用
    - **修复**: 使用参数化查询：`db.query('SELECT * FROM users WHERE name = ?', [username])`
 
 ### P2 - 中等
-2. **src/services/order.ts:118** 读-改-写操作未使用事务
+2. **src/services/file.ts:73** 路径拼接未校验
+   - **攻击路径**: `GET /files/{name}` → Express `req.params.name` 仅匹配单路径段（不含 `/`）→ 路由层拦截 `../`
+   - **风险**: 代码自身缺少路径校验，依赖框架路由行为
+   - **置信度**: 防御纵深缺失
+   - **修复**: 添加 `path.resolve()` + 前缀检查，与 `deleteFile()` 对齐
+
+3. **src/services/order.ts:118** 读-改-写操作未使用事务
    - **风险**: 并发订单在高负载下可能导致超卖
    - **修复**: 用事务包裹，使用 `SELECT ... FOR UPDATE`
 
 ### P3 - 低
-3. **src/utils/format.ts:7** 魔法数字 86400
+4. **src/utils/format.ts:7** 魔法数字 86400
    - **风险**: 可读性差 — 不清楚 86400 代表什么
    - **修复**: 提取为常量 `const SECONDS_PER_DAY = 86400`
 

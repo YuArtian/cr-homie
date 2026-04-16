@@ -2,11 +2,23 @@
 
 ## Input/Output Safety
 
+> ⚠️ For each finding below, **verify the full attack chain** before reporting as exploitable. Follow these steps:
+> 1. `grep` to find all callers of the vulnerable function
+> 2. If called from a web route, read the route definition — check parameter constraints (e.g., FastAPI `{param}` only matches single path segments, Express route params, etc.)
+> 3. If called from CLI/internal code, assess whether untrusted input can reach it
+> 4. **Exploitable**: attack input confirmed to reach vulnerable code → report with attack path
+> 5. **Defense-in-depth gap**: framework/middleware blocks the input, but code lacks its own protection → downgrade severity, note as defense gap
+
 - **XSS**: Unsafe HTML injection, `dangerouslySetInnerHTML`, unescaped templates, innerHTML assignments
+  - Verify: Does user input actually flow into the rendered output? Check if framework auto-escapes (React JSX, Jinja2 `{{ }}`).
 - **Injection**: SQL/NoSQL/command/GraphQL injection via string concatenation or template literals
+  - Verify: Is the concatenated value user-controlled? Check if ORM/parameterized queries are used upstream.
 - **SSRF**: User-controlled URLs reaching internal services without allowlist validation
+  - Verify: Trace the URL parameter from entry point — is it user-provided or server-generated?
 - **Path traversal**: User input in file paths without sanitization (`../` attacks)
+  - Verify: Check route parameter constraints and middleware. Can `../` actually reach the function?
 - **Prototype pollution**: Unsafe object merging in JavaScript (`Object.assign`, spread with user input)
+  - Verify: Is the merged object from user input or internal code?
 
 ## AuthN/AuthZ
 

@@ -11,7 +11,7 @@ npx skills add YuArtian/cr-homie
 ## Features
 
 - **SOLID Principles** — Detect SRP, OCP, LSP, ISP, DIP violations with refactor heuristics
-- **Security Scan** — XSS, injection, SSRF, race conditions, auth gaps, secrets leakage, package manager consistency
+- **Security Scan** — XSS, injection, SSRF, race conditions, auth gaps, secrets leakage, package manager consistency. **Attack chain verification**: traces entry point → framework/middleware → vulnerable code before reporting exploitability
 - **Performance** — N+1 queries, CPU hotspots, missing cache, memory issues
 - **Error Handling** — Swallowed exceptions, async errors, missing boundaries
 - **Boundary Conditions** — Null handling, empty collections, off-by-one, numeric limits
@@ -29,6 +29,7 @@ npx skills add YuArtian/cr-homie
 
 - **Review-first** — Only outputs findings. Never auto-fixes code until you explicitly confirm
 - **Iron Law** — Every finding must cite exact `file:line`, explain the concrete risk, and propose a specific fix. No vague advice like "consider improving error handling"
+- **Verify before reporting** — Every finding must be validated against surrounding context (callers, route definitions, config) before inclusion. Pattern-match alone is not enough
 - **Progressive loading** — Reference checklists are loaded on-demand per workflow step, not all at once, keeping context usage efficient
 - **Conditional steps** — Frontend quality, API contract checks, and removal planning only activate when the diff touches relevant code
 - **Anti-pattern guarded** — Explicit rules prevent severity inflation, duplicate findings, and out-of-scope suggestions
@@ -53,9 +54,9 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
               │        └───────────────────────┘
 ```
 
-1. **Preflight** ⛔ — Run `git diff` (or specified scope) to collect changed files, detect language(s), identify critical paths (auth, payments, data writes). If diff is empty, prompt user. If >500 lines, batch by module. For `project` scope: scan all source files, group by module, show a summary table with file counts and line estimates, and **ask user to confirm** before proceeding (user can select specific modules or cancel).
+1. **Preflight** ⛔ — **Smart detection**: when no scope is specified, auto-detects unstaged → staged → branch diff (uses the first with content). Collects changed files, detects language(s), identifies critical paths (auth, payments, data writes). If diff is empty, suggests `project` mode. If >2000 lines or >15 files, uses **two-pass review** (Pass 1: quick scan for hotspots; Pass 2: deep review with context expansion). For `project` scope: two-pass strategy applies — quick scan all modules first, then deep review each hotspot.
 2. **SOLID + Architecture** — Load `solid-checklist.md`. Check for SRP/OCP/LSP/ISP/DIP violations. Propose incremental refactors, not rewrites.
-3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage, package manager consistency (lock file conflicts, packageManager field mismatch, Dockerfile misalignment). Report both exploitability and impact.
+3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage, package manager consistency. **Verify attack chains**: for each security finding, trace external entry point → framework handling → vulnerable code. Report as `Confirmed exploitable`, `Defense-in-depth gap`, or `Needs verification`.
 4. **Code Quality** — Load `code-quality-checklist.md`. Check error handling anti-patterns, N+1 queries, hot path CPU, boundary conditions (null, empty, off-by-one), observability gaps.
 5. **Testing Quality** ⚠️ — Load `testing-checklist.md`. Check if changed paths have tests, whether tests verify behavior (not implementation), flag over-mocking and flaky tests.
 6. **Frontend Quality** _(conditional)_ — Load `frontend-checklist.md` when diff contains frontend files. Apply code principles (KISS, FP, DRY, YAGNI, Clean Architecture). Check fake data (P0/P1), a11y, rendering perf, bundle, CSS, state, i18n.
@@ -71,7 +72,7 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 ## Usage
 
 ```bash
-/cr-homie                        # Review unstaged changes (default)
+/cr-homie                        # Smart detect: unstaged → staged → branch diff
 /cr-homie staged                 # Review staged changes
 /cr-homie commit:abc123          # Review a specific commit
 /cr-homie pr:42                  # Review a PR
@@ -87,7 +88,7 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `<scope>` | What to review: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | unstaged changes |
+| `<scope>` | What to review: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | smart detection |
 | `--focus <area>` | Limit to: `security`, `solid`, `performance`, `quality`, `testing`, `frontend`, `api`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
 | `--quick` | Only report P0/P1, skip SOLID and removal analysis | off |
@@ -113,16 +114,24 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 
 ### P1 - High
 1. **src/auth/login.ts:42** SQL injection via string interpolation
+   - **Attack path**: `POST /api/login` → Express route `req.body.username` → `login()` → raw SQL concat
    - **Risk**: Attacker can extract/modify database via crafted username input
+   - **Confidence**: Confirmed exploitable
    - **Fix**: Use parameterized query: `db.query('SELECT * FROM users WHERE name = ?', [username])`
 
 ### P2 - Medium
-2. **src/services/order.ts:118** Read-modify-write without transaction
+2. **src/services/file.ts:73** Path concatenation without validation
+   - **Attack path**: `GET /files/{name}` → Express `req.params.name` only matches single segment (no `/`) → `../` blocked at route level
+   - **Risk**: Code lacks its own path validation, relies on framework routing behavior
+   - **Confidence**: Defense-in-depth gap
+   - **Fix**: Add `path.resolve()` + prefix check to match `deleteFile()` pattern
+
+3. **src/services/order.ts:118** Read-modify-write without transaction
    - **Risk**: Concurrent orders can oversell inventory under load
    - **Fix**: Wrap in transaction with `SELECT ... FOR UPDATE`
 
 ### P3 - Low
-3. **src/utils/format.ts:7** Magic number 86400
+4. **src/utils/format.ts:7** Magic number 86400
    - **Risk**: Readability — unclear what 86400 represents
    - **Fix**: Extract to `const SECONDS_PER_DAY = 86400`
 
