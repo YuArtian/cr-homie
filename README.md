@@ -11,7 +11,7 @@ npx skills add YuArtian/cr-homie
 ## Features
 
 - **SOLID Principles** — Detect SRP, OCP, LSP, ISP, DIP violations with refactor heuristics
-- **Security Scan** — XSS, injection, SSRF, race conditions, auth gaps, secrets leakage
+- **Security Scan** — XSS, injection, SSRF, race conditions, auth gaps, secrets leakage, package manager consistency
 - **Performance** — N+1 queries, CPU hotspots, missing cache, memory issues
 - **Error Handling** — Swallowed exceptions, async errors, missing boundaries
 - **Boundary Conditions** — Null handling, empty collections, off-by-one, numeric limits
@@ -55,7 +55,7 @@ git diff → Preflight → Review Steps → Self-Check → Page Verify? → Outp
 
 1. **Preflight** ⛔ — Run `git diff` (or specified scope) to collect changed files, detect language(s), identify critical paths (auth, payments, data writes). If diff is empty, prompt user. If >500 lines, batch by module. For `project` scope: scan all source files, group by module, show a summary table with file counts and line estimates, and **ask user to confirm** before proceeding (user can select specific modules or cancel).
 2. **SOLID + Architecture** — Load `solid-checklist.md`. Check for SRP/OCP/LSP/ISP/DIP violations. Propose incremental refactors, not rewrites.
-3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage. Report both exploitability and impact.
+3. **Security Scan** ⚠️ — Load `security-checklist.md`. Check XSS, injection, SSRF, auth gaps, race conditions, secrets leakage, package manager consistency (lock file conflicts, packageManager field mismatch, Dockerfile misalignment). Report both exploitability and impact.
 4. **Code Quality** — Load `code-quality-checklist.md`. Check error handling anti-patterns, N+1 queries, hot path CPU, boundary conditions (null, empty, off-by-one), observability gaps.
 5. **Testing Quality** ⚠️ — Load `testing-checklist.md`. Check if changed paths have tests, whether tests verify behavior (not implementation), flag over-mocking and flaky tests.
 6. **Frontend Quality** _(conditional)_ — Load `frontend-checklist.md` when diff contains frontend files. Apply code principles (KISS, FP, DRY, YAGNI, Clean Architecture). Check fake data (P0/P1), a11y, rendering perf, bundle, CSS, state, i18n.

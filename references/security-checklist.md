@@ -38,6 +38,36 @@
 - Importing from untrusted sources or CDNs without integrity checks
 - Outdated dependencies with known CVEs
 
+### Package Manager Consistency (Node.js)
+
+> Only when Preflight detected `package.json` in scope.
+
+#### Conflicting Lock Files (P1)
+- Multiple lock files in same directory: `package-lock.json` + `yarn.lock`, `package-lock.json` + `pnpm-lock.yaml`, etc.
+- Each lock file implies a different resolution algorithm — coexistence means different environments may install different dependency trees
+- **Fix**: Delete the extra lock file(s), keep only the one matching the intended package manager, add others to `.gitignore`
+
+#### packageManager Field Mismatch (P1)
+- `package.json` declares `"packageManager": "pnpm@x.y.z"` but only `package-lock.json` (npm) exists, or vice versa
+- Confuses Corepack, CI, and new contributors — declared intent contradicts actual tooling
+- **Fix**: Align the `packageManager` field with the lock file in use, or switch to the declared package manager and regenerate the lock file
+
+#### Missing Package Manager Enforcement (P2)
+- Project uses a specific package manager but has no enforcement:
+  - No `"preinstall": "npx only-allow <pm>"` in `package.json` scripts
+  - No `packageManager` field for Corepack enforcement
+- **Fix**: Add `"preinstall": "npx only-allow <pm>"` or set `packageManager` field and enable Corepack
+
+#### Dockerfile Package Manager Mismatch (P1)
+- Dockerfile uses `npm ci` but project uses pnpm/yarn (or vice versa)
+- Also: `COPY package-lock.json` but actual lock file has different name
+- **Fix**: Align Dockerfile install commands and COPY directives with the project's package manager
+
+#### Questions to Ask
+- "Is there exactly one lock file at each package root?"
+- "Does the `packageManager` field match the lock file?"
+- "Does the Dockerfile install command match the project's package manager?"
+
 ## CORS & Headers
 
 - Overly permissive CORS (`Access-Control-Allow-Origin: *` with credentials)

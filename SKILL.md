@@ -65,6 +65,11 @@ Then:
 5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark as frontend-relevant for Step 6.
 6. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
 7. Identify critical paths: auth, payments, data writes, network, database migrations.
+8. **Package manager detection** (Node.js projects only): If any `package.json` exists in scope:
+   a. Check which lock files exist at each package root: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`
+   b. Extract the `packageManager` field from `package.json` (if present)
+   c. Check `scripts.preinstall` for enforcement hooks (e.g., `only-allow`)
+   d. Record signals for Step 3 (Security Scan)
 
 #### Project Scope — Full Project Scan
 
@@ -84,7 +89,7 @@ When scope is `project` or `project:<path>`:
    | **VCS/IDE** | `.git`, `.idea`, `.vscode` |
    | **Deployment** | `.vercel`, `.netlify` |
 
-   Also exclude: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries).
+   Also exclude from content review: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries). Note: lock file _existence_ is still checked during Preflight (step 1.8) for package manager consistency — only their content diff is excluded.
 3. Group files by top-level directory (module), count files and estimate total lines per module.
 4. **Confirmation gate** ⛔ BLOCKING — Before scanning, present the user with a summary and ask for explicit confirmation. Use the following format:
 
@@ -274,7 +279,7 @@ I found X issues (P0: _, P1: _, P2: _, P3: _).
 | File | Purpose | When to Load |
 |------|---------|--------------|
 | `references/solid-checklist.md` | SOLID smell prompts and refactor heuristics | Step 2 |
-| `references/security-checklist.md` | Security, reliability, and race condition checks | Step 3 |
+| `references/security-checklist.md` | Security, reliability, race conditions, package manager consistency | Step 3 |
 | `references/code-quality-checklist.md` | Error handling, performance, boundary conditions | Step 4 |
 | `references/testing-checklist.md` | Test quality, coverage, anti-patterns | Step 5 |
 | `references/frontend-checklist.md` | Code principles, a11y, perf, bundle, CSS, state, i18n | Step 6 (conditional) |
