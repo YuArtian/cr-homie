@@ -20,6 +20,7 @@ description: >
   </example>
 model: inherit
 color: yellow
+tools: [Grep, Read, Glob]
 ---
 
 # Testing Reviewer

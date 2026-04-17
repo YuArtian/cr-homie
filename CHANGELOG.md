@@ -1,5 +1,68 @@
 # Changelog
 
+## v3.0.0 — 2026-04-17
+
+> 主题：Verification > Scoring — 从打分过滤升级到证据验证
+
+### 架构动因
+
+对标 Anthropic 官方 `code-review` plugin、Cursor BugBot V11、CodeRabbit、Qodo Judge 的 SOTA 实现，行业共识是：**Verification（验证）优于 Scoring（打分）**。v2 的 Haiku confidence-scorer 只读 finding 文本打 0-100 分，无法识别"听起来合理但代码里已被 framework 拦截"的误报。v3 用证据驱动的 verifier 取代打分器，显著降低 false positive。
+
+### 破坏性变更
+
+- **删除 `confidence-scorer` agent** — 改由 `finding-verifier` 做证据核查（REFUTED 的 finding 直接丢弃，DOWNGRADED 降级保留，CONFIRMED 保留，NEEDS-MANUAL-REVIEW 带标签保留）
+- **删除 `api-reviewer` agent** — 合并进 `quality-reviewer` 的 API 子域（finding ID 使用 `QUAL-API-NNN` 子前缀）
+- **删除 `removal-reviewer` agent** — 合并进 `quality-reviewer` 的 removal 子域（finding ID 使用 `QUAL-REM-NNN` 子前缀）
+- **Agent 总数从 8 → 6**：security / quality / solid / testing / frontend / page-verifier，另加 `finding-verifier` 在 Phase 3 运行
+- **移除 Adversarial Consensus 机制** — 改为 "Consensus Lock" 安全覆盖：2+ agent 独立命中同一 `file:line` 时，verifier 至少必须保留一条（不允许全部 REFUTE）。不再做机械化 severity +1 提级。
+
+### 新增
+
+- **`agents/_base-reviewer.md`** — 所有 review agent 的公共元规则单一真相源：Iron Law、HIGH SIGNAL 过滤清单、Verify Before Reporting、Severity 表、Anti-Patterns、Finding 输出格式。agent 只维护领域特定内容，约 130 行基础规则不再在 8 个文件中重复。
+- **`agents/finding-verifier.md`** — 新的证据验证 agent。对每条 finding 用 `Grep`/`Read`/`Bash` 追溯调用链、消费者、已有测试，产出四态判决：`CONFIRMED` / `DOWNGRADED` / `REFUTED` / `NEEDS-MANUAL-REVIEW`。
+- **HIGH SIGNAL 过滤清单**（9 条）— 对标 Anthropic 官方 `code-review` 原则，明确 agent **不应** 报告的类型：linter 能抓的、预存问题、看起来像 bug 实际正确的、琐碎 nitpick、投机性重构、已有测试、泛泛之谈、跨 agent 重复、假想的未来需求。
+- **Agent 工具权限显式声明** — 每个 agent frontmatter 增加 `tools:` 字段，避免因继承链导致 verifier 降级为纯文本 scoring。
+- **Phase 3 Step 5 输出转换** — orchestrator 在格式化阶段统一做：(1) `file:line` → markdown 链接，(2) 合并 agent 的 `Verified` 与 verifier 的 `Evidence`，(3) 附加 verifier tag（如 `[defense-in-depth gap]`）。
+- **Agent 失败降级策略** — 任一 agent 超时或 MCP 不可用时写入 `Not Covered`，不阻塞流程。
+- **page-verifier 前置检查** — 运行前验证 Chrome DevTools MCP 连通性与 URL 可达性，失败时 fail-fast 而非静默跑半截。
+
+### 变更
+
+- **Phase 3 流程简化**：Collect → Deduplicate → **Evidence-Based Verification (替代 Scoring+Consensus 两步)** → Self-Check → Format → Confirm（从 7 步压缩为 6 步）
+- **`--focus` 参数修复**：`performance` 现在明确是 `quality` 的别名；`api` 是 `quality` 的别名且激活 API 子域
+- **`--quick` 模式**：只跑 security / testing / quality（P0/P1 only），跳过 solid / frontend / page-verifier
+- **Severity 单一真相源**：校准规则在 `_base-reviewer.md` 唯一定义，SKILL.md 只做用户面向摘要，agent 不再各自重写
+- **Two-pass + verifier 兼容**：verifier 即使在 two-pass 模式下也永远接收完整原始 diff，避免因 hotspot-filtered 切片导致误 REFUTE
+- **Blast radius 明确阈值**：删除 export 的严重级按 consumer 数量显式定档（5+/跨模块=P0，1-4 同模块=P1，仅测试=P2），不再模糊"按 blast radius"
+- **Linter-catchable 规则收紧**：只有当项目实际配置了对应 linter（存在 `.eslintrc*` / `tsconfig.json` / `ruff.toml` 等）时才可 drop，否则仍按 P3 保留
+- **Markdown 链接输出**：`file:line` 在最终报告统一转为 IDE 可点击链接 `[src/x.ts:42](src/x.ts#L42)`
+
+### 新增文件
+
+- `agents/_base-reviewer.md`
+- `agents/finding-verifier.md`
+
+### 删除文件
+
+- `agents/confidence-scorer.md`
+- `agents/api-reviewer.md`
+- `agents/removal-reviewer.md`
+
+### 修改文件
+
+- `SKILL.md` — Phase 3 重写、决策矩阵、HIGH SIGNAL 小节、Resources 表、输出模板
+- `agents/security-reviewer.md`、`agents/quality-reviewer.md`、`agents/solid-reviewer.md`、`agents/testing-reviewer.md`、`agents/frontend-reviewer.md`、`agents/page-verifier.md` — 全部瘦身引用 `_base-reviewer.md`，增加 `tools:` 声明
+
+### 迁移指引
+
+从 v2 升级：
+
+- 若有脚本依赖 finding ID 前缀 `API-NNN` 或 `REM-NNN`，改为 `QUAL-API-NNN` / `QUAL-REM-NNN`
+- 若有工作流依赖 `confidence-scorer` 的 0-100 分输出，改为读 `finding-verifier` 的 `Outcome` 字段
+- `--focus api` 和 `--focus performance` 现在会 route 到 `quality-reviewer`，不再启动独立 agent
+
+---
+
 ## v2.0.0 — 2026-04-17
 
 **主题：多 Agent 并行架构 — 从串行单 Agent 到并行多 Agent 流水线**

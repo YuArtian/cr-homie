@@ -23,6 +23,7 @@ description: >
   </example>
 model: inherit
 color: green
+tools: [Grep, Read, Glob]
 ---
 
 # Quality Reviewer
@@ -94,7 +95,10 @@ Follow the base Severity table. Sub-domain-specific notes:
 - **N+1 on a rarely-run admin path** → P2
 - **Swallowed exception in a background job** → P1
 - **Missing log context** → P3, never P1
-- **Removing an export with real consumers and no alias** → P0 or P1 depending on blast radius
+- **Removing an export with real consumers and no alias** → severity by **blast radius** (count consumers via grep):
+  - 5+ consumers across 2+ modules, OR any consumer in a published package entry → **P0**
+  - 1-4 consumers in the same module/package → **P1**
+  - Used only in tests or internal helpers → **P2**
 - **Removing an internal helper with 0 callers** → P2 or P3
 - **A new optional field in a response** → DO NOT REPORT (not breaking)
 

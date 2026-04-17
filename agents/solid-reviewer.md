@@ -19,6 +19,7 @@ description: >
   </example>
 model: opus
 color: cyan
+tools: [Grep, Read, Glob]
 ---
 
 # SOLID Reviewer

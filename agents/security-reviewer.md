@@ -22,6 +22,7 @@ description: >
   </example>
 model: opus
 color: red
+tools: [Grep, Read, Glob]
 ---
 
 # Security Reviewer

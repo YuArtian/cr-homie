@@ -229,7 +229,7 @@ After all agents complete, process their findings through verification-first pip
 
 #### Step 1: Collect
 
-Gather findings from each completed agent. Each finding has a domain prefix: `SEC-NNN`, `TEST-NNN`, `SOLID-NNN`, `QUAL-NNN` (with sub-prefixes `QUAL-API-NNN` / `QUAL-REM-NNN`), `FE-NNN`, `PAGE-NNN`. Record which agent produced each finding for the `[source]` tag.
+Gather findings from each completed agent. Each finding has a domain prefix that already identifies its source: `SEC-NNN`, `TEST-NNN`, `SOLID-NNN`, `QUAL-NNN` (with sub-prefixes `QUAL-API-NNN` / `QUAL-REM-NNN`), `FE-NNN`, `PAGE-NNN`.
 
 Also collect each agent's `Not Covered` section — these merge into the final report.
 
@@ -244,7 +244,11 @@ Record which `file:line` locations were flagged by multiple agents — this feed
 
 #### Step 3: Evidence-Based Verification ⛔ BLOCKING (replaces confidence scoring)
 
-Launch the `finding-verifier` agent with the full merged findings list AND the Preflight Context Block. The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each finding and returns one of four outcomes per finding:
+Launch the `finding-verifier` agent with the full merged findings list AND the Preflight Context Block.
+
+**Important — full diff required**: even when Phase 1 used two-pass mode (hotspot-filtered diff for Phase 2 agents), the verifier MUST receive the **full original diff**, not the hotspot-filtered version. A finding's `file:line` citation refers to the full diff; verifying against a filtered slice would produce false REFUTEs when the cited line was trimmed out.
+
+The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each finding and returns one of four outcomes per finding:
 
 | Outcome | Orchestrator action |
 | ------- | ------------------- |
@@ -265,8 +269,8 @@ This replaces the prior Haiku-scoring + Adversarial-Consensus pipeline. Verifica
 
 Before output, verify the surviving findings:
 
-- [ ] Every finding has an exact `file:line` reference
-- [ ] Every finding has a `Verified:` line (from the original agent) AND a verifier `Evidence:` line (from Step 3)
+- [ ] Every finding has an exact `file:line` reference (will be converted to markdown link in Step 5)
+- [ ] Every finding carries BOTH an agent `Verified:` line AND a verifier `Evidence:` line going into Step 5 — these get merged into a single `Verified:` field during formatting
 - [ ] Every finding has a justified severity level consistent with the base Severity calibration in `agents/_base-reviewer.md`
 - [ ] No duplicate findings remain
 - [ ] No vague suggestions without a concrete, implementable fix
@@ -279,7 +283,13 @@ Before output, verify the surviving findings:
 
 #### Step 5: Format Output
 
-Use markdown link format for `file:line` references so they are clickable in IDE clients (VSCode extension, JetBrains, etc.): `[src/auth/login.ts:42](src/auth/login.ts#L42)`.
+**Before formatting, the orchestrator performs these transforms on each surviving finding:**
+
+1. **file:line → markdown link** — convert agent-produced plain citations (e.g., `src/auth/login.ts:42`) to clickable markdown links (`[src/auth/login.ts:42](src/auth/login.ts#L42)`). Agents output plain `file:line`; the orchestrator is responsible for this conversion because only it knows the repo root.
+2. **Merge verification fields** — each finding carries a `Verified:` line from the original review agent AND an `Evidence:` line from the verifier (Step 3). Combine them under a single `Verified:` field as: `<agent verified>; verifier: <verifier evidence>`.
+3. **Apply verifier tags** — if the verifier assigned a tag (`[defense-in-depth gap]`, `[needs manual review]`), append it to the finding's title.
+
+Final report template (after Step 5 transforms are applied):
 
 ```markdown
 ## Code Review Summary
@@ -301,7 +311,7 @@ Use markdown link format for `file:line` references so they are clickable in IDE
 1. **[src/auth/login.ts:42](src/auth/login.ts#L42)** SQL injection via username `[SEC-001]`
    - **Risk**: What goes wrong and how likely
    - **Fix**: Specific code change or approach
-   - **Verified**: Evidence from the original agent + verifier (merged)
+   - **Verified**: <agent evidence>; verifier: <verifier evidence from Step 3>
 
 > **Security findings** claiming external exploitability MUST include:
 >

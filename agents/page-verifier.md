@@ -9,6 +9,7 @@ description: >
   either prerequisite is missing.
 model: inherit
 color: magenta
+tools: [Read, Grep, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__new_page, mcp__chrome-devtools__list_pages, mcp__chrome-devtools__list_console_messages, mcp__chrome-devtools__list_network_requests, mcp__chrome-devtools__take_snapshot, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__lighthouse_audit, mcp__chrome-devtools__evaluate_script, mcp__chrome-devtools__emulate, mcp__chrome-devtools__resize_page, mcp__chrome-devtools__performance_start_trace, mcp__chrome-devtools__performance_stop_trace]
 ---
 
 # Page Verifier
@@ -38,8 +39,10 @@ Before any verification:
    Do NOT attempt further verification. Exit cleanly.
 
 2. **URL reachability** — navigate to the provided URL. If the page fails to load:
-   - If it's a connection error (dev server not running) → output `⛔ Skipped: cannot reach <URL> (is the dev server running?)` and exit cleanly
-   - If it's an HTTP error (4xx/5xx) → report as P0 `PAGE-000` and continue with whatever other checks are possible
+   - Connection error (dev server not running / DNS failure) → output `⛔ Skipped: cannot reach <URL> (is the dev server running?)` and exit cleanly
+   - HTTP 5xx → report as P0 `PAGE-000` and continue with whatever checks remain possible
+   - HTTP 4xx on an expected-to-be-public URL (the URL the user asked you to verify) → P1 `PAGE-000`; attempt to continue
+   - HTTP 401/403 where the route is designed to require auth → P3 `PAGE-000` (informational) and continue where possible; do NOT inflate auth-protected routes to P0
 
 ## Verification Steps
 
