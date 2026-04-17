@@ -262,3 +262,58 @@ Anthropic 官方 `code-review` 插件的核心设计原则：
 3. **Fewer high-quality agents > Many shallow agents** — 少量高质量 agent 优于大量浅层 agent
 
 最紧迫的改进：将 Haiku confidence scorer 替换为二次验证机制，添加 HIGH SIGNAL 过滤清单，精简 agent 数量。
+
+---
+
+## 八、实施进度（v3.0.0 — 2026-04-17）
+
+> 本节记录重构执行状态，随 git 同步，用于跨设备/跨对话续接工作。
+
+### 已完成：P0 架构改造 + 12 条 self-review 修复
+
+提交：`c85761e Upgrade to v3.0.0, transitioning from scoring to evidence-based verification...`
+
+**P0 架构改造：**
+
+- 新增 `agents/_base-reviewer.md` — 公共元规则单一真相源（Iron Law / HIGH SIGNAL 9 条 / Verify Before Reporting / Severity 表 / Anti-Patterns / 输出格式）
+- 新增 `agents/finding-verifier.md` — 证据验证 agent，四态判决 `CONFIRMED / DOWNGRADED / REFUTED / NEEDS-MANUAL-REVIEW`，取代 Haiku 打分器
+- 合并 `api-reviewer` + `removal-reviewer` → `quality-reviewer` 子域（`QUAL-API-NNN` / `QUAL-REM-NNN`）
+- Agent 数 8 → 6（security / quality / solid / testing / frontend / page-verifier）+ 1 个 verifier
+- 6 个 reviewer 瘦身为 `[inherits _base-reviewer rules]` + 领域特定内容
+- SKILL.md 重写 Phase 3（Collect → Dedup → Verification → Self-Check → Format → Confirm）、决策矩阵、HIGH SIGNAL 小节、Resources 表
+
+**Self-review 12 条修复：**
+
+1. 删除 SKILL.md `[source]` tag 断链
+2. 所有 agent frontmatter 加 `tools:` 声明
+3. finding-verifier SEC-P0 refute 逻辑改为"强证据允许 REFUTE，弱证据用 NEEDS-MANUAL-REVIEW"
+4. page-verifier HTTP 4xx 分档（5xx=P0、公开 4xx=P1、受保护 401/403=P3）
+5. 删除 verifier Recommended action 冗余
+6. Verified 双来源合并格式明确
+7. `file:line` → markdown link 转换由 orchestrator 做
+8. Two-pass 模式下 verifier 始终收完整原始 diff
+9. `_base-reviewer.md` unchanged-code 规则加 page-verifier 例外
+10. HIGH SIGNAL linter-catchable 改为"仅当项目配置了对应 linter 才 drop"
+11. quality-reviewer blast radius 显式阈值（5+/跨模块=P0，1-4 同模块=P1，仅测试=P2）
+12. CHANGELOG.md 新增 v3.0.0 条目
+
+### 待办：P1 批次（非破坏性 bug 修复）
+
+- [ ] Smart Detection 优先级调整 — 当前 `unstaged → staged → branch` 会让 "2 行未保存改动遮蔽 20 个 commit 的 branch"。方案：branch 优先，或 Preflight 让用户选。
+- [ ] Project Scan 硬限制 — 大项目超 context window 时无降级，需加 max-files / max-lines 阈值与 hotspot 回退
+- [ ] Project 模式与 agent prompt 冲突 — agent 内部仍写 "Do NOT add findings about unchanged code"，[SKILL.md](SKILL.md) 的 override 没注入到 agent 系统提示，需要显式传标志
+- [ ] README.md / README.zh-CN.md 同步到 v3 架构（目前仍提 confidence-scorer / api-reviewer / removal-reviewer）
+- [ ] [agent.yaml](agents/agent.yaml) 评估：启用承担更多职责 或 删除
+
+### 待办：P2 批次（润色）
+
+- [ ] 语言覆盖扩展：Rust / C++ / Swift
+- [ ] Phase 1 意图提取（对标 ClaudeMonetFullStack）
+- [ ] 渐进加载 references（checklist 按需加载，对标 awesome-skills）
+- [ ] REVIEW.md 项目级定制支持（对标 Anthropic Managed）
+
+### 关键决策记录（供下次对话续接）
+
+- **Agent 合并方案**：api 和 removal 都并入 quality-reviewer 作为子域（已确认并落地）
+- **执行节奏**：分批推进，P0 完成后停下 review 再决定是否继续（用户明确偏好，见 `~/.claude/projects/-Users-yuartian-git-cr-homie/memory/user_work_style.md`）
+- **next action**：用户 review 完 v3 后决定是否进入 P1；若要继续，从 Smart Detection 优先级开始（影响面最小、收益最直接）
