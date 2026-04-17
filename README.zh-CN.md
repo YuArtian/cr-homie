@@ -30,42 +30,49 @@ npx skills add YuArtian/cr-homie
 - **审查优先** — 仅输出发现，不自动修改代码，直到你明确确认
 - **铁律（Iron Law）** — 每条发现必须标注 `file:line`，解释具体风险，提出明确修复方案。不允许模糊建议
 - **验证后报告** — 每条发现必须验证上下文（调用方、路由定义、配置等）后才能纳入报告。仅匹配模式不足以成为 finding
-- **渐进加载** — 参考清单按工作流步骤按需加载，不会一次性全部占用上下文
-- **条件步骤** — 前端质量、API 契约检查、移除计划仅在 diff 涉及相关代码时激活
+- **多 Agent 并行** — 专项审查 Agent 并行运行，各自拥有独立领域专长和检查清单，降低上下文压力，提升速度
+- **置信度打分** — 专用打分 Agent 对每条发现评分（0-100），过滤误报后再输出
+- **条件激活** — 前端质量、API 契约检查、移除计划、页面验证仅在检测到相关代码时激活
 - **反模式防护** — 明确规则防止严重程度膨胀、重复发现和超范围建议
+
+### 架构
+
+```
+Phase 1: 预检（编排器）
+    ↓ Preflight Context Block
+Phase 2: 并行 Review Agents
+    ├─→ security-reviewer   [opus]    ← 必选
+    ├─→ testing-reviewer    [inherit] ← 必选
+    ├─→ quality-reviewer    [inherit]
+    ├─→ solid-reviewer      [opus]
+    ├─→ frontend-reviewer   [inherit] ← 检测到前端文件时
+    ├─→ api-reviewer        [inherit] ← 检测到 API 变更时
+    ├─→ removal-reviewer    [inherit] ← 检测到死代码时
+    └─→ page-verifier       [inherit] ← --verify + --url 时
+    ↓ 所有 agent 返回 findings
+Phase 3: 聚合（编排器）
+    ├─→ 去重 + 多 agent 共识升级 severity
+    ├─→ confidence-scorer   [haiku]   ← 打分过滤
+    ├─→ 自检验证
+    ├─→ 格式化输出报告
+    └─→ 用户确认
+```
 
 ### 工作流
 
-```
-git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 → 用户确认
-              │                          │              │
-              ├─ 检测范围、语言、关键路径    │              ├─ Lighthouse 审计
-              │                          │              ├─ 控制台错误
-              │     ┌──────────────────┐  │              ├─ 假数据检测
-              │     │    审查步骤       │  │              ├─ 无障碍树检查
-              │     ├──────────────────┤  │              └─ 视觉 + 响应式
-              │     │ SOLID + 架构      │  │
-              │     │ 安全扫描 ⚠️       │  ├─ 验证每条发现有 file:line
-              │     │ 代码质量          │  ├─ 验证严重程度合理
-              │     │ 测试质量 ⚠️       │  └─ 验证无重复
-              │     │ 前端质量 (条件)    │
-              │     │ API 契约 (条件)    │
-              │     │ 移除计划 (条件)    │
-              │     └──────────────────┘
-```
+1. **Phase 1: 预检** ⛔ — **智能探测**：未指定范围时，自动按 unstaged → staged → 分支 diff 优先级探测。收集变更文件，检测语言，识别关键路径、前端文件、API 变更。超过 2000 行或 15 个文件时，采用**两轮扫描**（第一轮快扫热点，第二轮过滤后传给 agent）。汇总 Preflight Context Block 传递给所有 agent。
 
-1. **预检** ⛔ — **智能探测**：未指定范围时，自动按 unstaged → staged → 分支 diff 优先级探测（使用第一个有内容的）。收集变更文件，检测语言，识别关键路径（认证、支付、数据写入）。diff 为空则建议使用 `project` 模式。超过 2000 行或 15 个文件时，采用**两轮扫描**（第一轮：快扫标记热点；第二轮：聚焦深度 review + 上下文扩展）。`project` 模式同样采用两轮策略——先快扫所有模块，再逐个热点深度审查。
-2. **SOLID + 架构** — 加载 `solid-checklist.md`。检查 SRP/OCP/LSP/ISP/DIP 违反，提出渐进式重构方案。
-3. **安全扫描** ⚠️ — 加载 `security-checklist.md`。检查 XSS、注入、SSRF、认证缺陷、竞态条件、密钥泄露、包管理器一致性。**验证攻击链**：每个安全发现追溯外部入口 → 框架层处理 → 漏洞代码，标注置信度为 `已确认可利用`、`防御纵深缺失` 或 `需进一步验证`。
-4. **代码质量** — 加载 `code-quality-checklist.md`。检查错误处理反模式、N+1 查询、热路径 CPU、边界条件（null、空集合、off-by-one）、可观测性缺失。
-5. **测试质量** ⚠️ — 加载 `testing-checklist.md`。检查变更代码是否有测试覆盖，测试是否验证行为（而非实现细节），标记过度 mock 和不稳定测试。
-6. **前端质量** _(条件)_ — 加载 `frontend-checklist.md`，当 diff 包含前端文件时激活。应用编码原则（KISS、函数式、DRY、YAGNI、整洁架构）。检查假数据（P0/P1）、无障碍、渲染性能、Bundle 体积、CSS、状态管理、国际化。
-7. **API 契约** _(条件)_ — 加载 `api-contract-checklist.md`，仅当 diff 涉及公共接口、端点或导出类型时激活。检查 Breaking Change 和向后兼容性。
-8. **移除候选** _(条件)_ — 加载 `removal-plan.md`，仅当 diff 暴露死代码或过期 feature flag 时激活。区分"可立即安全删除"和"需制定计划延后删除"。
-9. **自检** ⛔ — 输出前验证所有发现：每条有 `file:line`、严重程度合理、无重复、无模糊建议。
-10. **页面验证** _(条件)_ — 加载 `page-verification-guide.md`，仅当设置 `--verify` 时激活。导航到 `--url`，运行 Lighthouse，检查控制台错误，通过网络请求/运行时检测假数据，截图检查桌面 + 移动端 + 暗色模式。
-11. **输出** — 按严重程度（P0–P3）分组的结构化报告，如有页面验证结果则附加。
-12. **确认** ⚠️ — 提供选项：全部修复 / 仅修 P0-P1 / 选择性修复 / 不修改。用户确认前不做任何改动。
+2. **Phase 2: 并行 Agent** — 根据预检信号启动专项 agent 并行审查：
+   - `security-reviewer` (opus) ⚠️ — XSS、注入、SSRF、认证缺陷、竞态条件、攻击链验证
+   - `testing-reviewer` (inherit) ⚠️ — 覆盖率、测试质量、反模式
+   - `quality-reviewer` (inherit) — 错误处理、N+1、边界条件、可观测性
+   - `solid-reviewer` (opus) — SRP/OCP/LSP/ISP/DIP、架构坏味道
+   - `frontend-reviewer` (inherit) _(条件)_ — 编码原则、无障碍、性能、Bundle、状态、i18n
+   - `api-reviewer` (inherit) _(条件)_ — Breaking Change、向后兼容、版本控制
+   - `removal-reviewer` (inherit) _(条件)_ — 死代码识别、清理计划
+   - `page-verifier` (inherit) _(条件)_ — 运行时页面验证（Chrome DevTools MCP）
+
+3. **Phase 3: 聚合** ⛔ — 跨 agent 去重发现。当 2+ agent 标记同一位置时，severity 提升一级（对抗性共识）。启动 `confidence-scorer` (haiku) 对每条发现评分 0-100，丢弃低置信度发现（<70）。执行自检验证，格式化输出，呈现用户确认选项。
 
 > ⛔ = 阻塞（必须完成才能继续）· ⚠️ = 必需（不可跳过）
 
@@ -103,6 +110,7 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 **范围**: 未暂存变更
 **审查文件**: 3 个文件，87 行变更
 **主要语言**: TypeScript
+**启动 Agent**: security-reviewer, testing-reviewer, quality-reviewer, solid-reviewer
 **总体评估**: REQUEST_CHANGES
 
 ---
@@ -113,25 +121,25 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 （无）
 
 ### P1 - 高危
-1. **src/auth/login.ts:42** SQL 注入 — 字符串拼接构造查询
+1. **src/auth/login.ts:42** SQL 注入 — 字符串拼接构造查询 `[SEC-001]` `[security]`
    - **攻击路径**: `POST /api/login` → Express 路由 `req.body.username` → `login()` → 原始 SQL 拼接
    - **风险**: 攻击者可通过构造用户名输入提取/篡改数据库
    - **置信度**: 已确认可利用
    - **修复**: 使用参数化查询：`db.query('SELECT * FROM users WHERE name = ?', [username])`
 
 ### P2 - 中等
-2. **src/services/file.ts:73** 路径拼接未校验
-   - **攻击路径**: `GET /files/{name}` → Express `req.params.name` 仅匹配单路径段（不含 `/`）→ 路由层拦截 `../`
+2. **src/services/file.ts:73** 路径拼接未校验 `[SEC-002]` `[security]`
+   - **攻击路径**: `GET /files/{name}` → Express `req.params.name` 仅匹配单路径段 → 路由层拦截 `../`
    - **风险**: 代码自身缺少路径校验，依赖框架路由行为
    - **置信度**: 防御纵深缺失
-   - **修复**: 添加 `path.resolve()` + 前缀检查，与 `deleteFile()` 对齐
+   - **修复**: 添加 `path.resolve()` + 前缀检查
 
-3. **src/services/order.ts:118** 读-改-写操作未使用事务
+3. **src/services/order.ts:118** 读-改-写操作未使用事务 `[QUAL-001]` `[quality]`
    - **风险**: 并发订单在高负载下可能导致超卖
    - **修复**: 用事务包裹，使用 `SELECT ... FOR UPDATE`
 
 ### P3 - 低
-4. **src/utils/format.ts:7** 魔法数字 86400
+4. **src/utils/format.ts:7** 魔法数字 86400 `[SOLID-001]` `[solid]`
    - **风险**: 可读性差 — 不清楚 86400 代表什么
    - **修复**: 提取为常量 `const SECONDS_PER_DAY = 86400`
 
@@ -151,14 +159,37 @@ git diff → 预检 → 审查步骤 → 自检 → 页面验证? → 输出 →
 | P2 | 中等 | 代码坏味道、轻微 SOLID 违反、测试缺口 | 当前 PR 修复或创建跟踪项 |
 | P3 | 低 | 风格、命名、小建议 | 可选改进 |
 
+## 审查 Agent
+
+| Agent | 领域 | 模型 | 条件 |
+|-------|------|------|------|
+| `security-reviewer` | 安全、可靠性、竞态条件、供应链 | opus | 必选 |
+| `testing-reviewer` | 测试覆盖率、质量、反模式 | inherit | 必选 |
+| `quality-reviewer` | 错误处理、性能、边界条件、可观测性 | inherit | 默认启动 |
+| `solid-reviewer` | SOLID 原则、架构坏味道 | opus | 默认启动（--quick 跳过） |
+| `frontend-reviewer` | 前端原则、无障碍、性能、Bundle、状态、i18n | inherit | 检测到前端文件 |
+| `api-reviewer` | Breaking Change、兼容性、版本控制 | inherit | 检测到 API 变更 |
+| `removal-reviewer` | 死代码、废弃路径、过期 feature flag | inherit | 检测到死代码 |
+| `page-verifier` | 运行时页面验证（Chrome DevTools MCP） | inherit | --verify + --url |
+| `confidence-scorer` | 发现质量打分、误报过滤 | haiku | Phase 3 必选 |
+
 ## 项目结构
 
 ```
 cr-homie/
-├── SKILL.md                             # 工作流定义 + 铁律 + 反模式
+├── SKILL.md                             # 三阶段编排工作流
 ├── agents/
-│   └── agent.yaml                       # Agent 接口 + 触发关键词
-└── references/                          # 知识库（按步骤按需加载）
+│   ├── agent.yaml                       # Agent 接口 + 触发关键词
+│   ├── security-reviewer.md             # 安全 + 可靠性 Agent
+│   ├── testing-reviewer.md              # 测试质量 Agent
+│   ├── solid-reviewer.md                # SOLID + 架构 Agent
+│   ├── quality-reviewer.md              # 代码质量 Agent
+│   ├── frontend-reviewer.md             # 前端质量 Agent（条件）
+│   ├── api-reviewer.md                  # API 契约 Agent（条件）
+│   ├── removal-reviewer.md              # 移除计划 Agent（条件）
+│   ├── page-verifier.md                 # 页面验证 Agent（条件）
+│   └── confidence-scorer.md             # 发现质量打分 Agent
+└── references/                          # 知识库（各 agent 按需加载）
     ├── solid-checklist.md               # SOLID 检查提示 + 语言特定红旗
     ├── security-checklist.md            # OWASP 风险、竞态条件、加密、供应链
     ├── code-quality-checklist.md        # 错误处理、N+1、缓存、边界条件、可观测性
@@ -169,7 +200,7 @@ cr-homie/
     └── page-verification-guide.md       # Chrome DevTools MCP 验证流程
 ```
 
-`references/` 目录作为**渐进式知识库** — 每个文件仅在对应工作流步骤执行时加载到上下文中，保持 token 使用高效。
+每个审查 Agent 仅加载自己对应的 `references/` 清单，保持单 Agent 上下文高效。
 
 ## 页面验证（Chrome DevTools MCP）
 

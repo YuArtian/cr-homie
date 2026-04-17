@@ -10,43 +10,73 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 ## Arguments
 
 | Argument | Description |
-|----------|-------------|
-| `<scope>` | What to review (default: unstaged changes). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or a file path |
-| `--focus <area>` | Focus area: `security`, `solid`, `performance`, `quality`, `testing`, `api`, `frontend`, `all` (default: `all`) |
+| -------- | ----------- |
+| `<scope>` | What to review (default: smart detection of unstaged → staged → branch). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or a file path |
+| `--focus <area>` | Focus area: `security`, `solid`, `testing`, `quality` (includes `performance` and `api` aliases), `frontend`, `all` (default: `all`) |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
-| `--quick` | Quick scan — only P0/P1, skip SOLID and removal analysis |
-| `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url`) |
+| `--quick` | Quick scan — only P0/P1, skip SOLID and frontend analysis |
+| `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url` and MCP server) |
 | `--url <url>` | Dev server URL for page verification (e.g., `http://localhost:3000`) |
 
 ## Severity Levels
 
-| Level | Name | Description | Action |
-|-------|------|-------------|--------|
-| **P0** | Critical | Security vulnerability, data loss risk, correctness bug | Must block merge |
-| **P1** | High | Logic error, significant SOLID violation, performance regression, missing critical tests | Should fix before merge |
-| **P2** | Medium | Code smell, maintainability concern, minor SOLID violation, test gaps | Fix in this PR or create follow-up |
-| **P3** | Low | Style, naming, minor suggestion | Optional improvement |
+The authoritative Severity table with calibration rules lives in `agents/_base-reviewer.md` and is inherited by every review agent. User-facing summary:
+
+| Level | Name | Must do |
+| ----- | ---- | ------- |
+| **P0** | Critical | Block merge — exploitable security, data loss, correctness bug, fake data in prod path |
+| **P1** | High | Fix before merge — significant vulnerability, logic error in critical path, missing critical tests, breaking API change without migration |
+| **P2** | Medium | Fix in this PR or create follow-up — defense-in-depth gap, code smell, missing edge tests |
+| **P3** | Low | Optional — style, naming, minor optimization |
+
+## HIGH SIGNAL Philosophy
+
+cr-homie aims for **HIGH SIGNAL findings only**. The shared rule set in `agents/_base-reviewer.md` defines what every review agent MUST silently drop:
+
+- Linter-catchable issues (formatting, unused imports, basic type errors)
+- Pre-existing issues in code NOT touched by the diff (exception: `project` scope)
+- Looks-like-a-bug-but-actually-correct patterns (framework auto-escapes, caller holds lock, etc.)
+- Pedantic nitpicks a senior engineer would not raise
+- Speculative refactors without evidence of current pain
+- Tests that already exist (a grep would have found them)
+- Generic advice with no concrete fix ("consider improving error handling")
+- Duplicates across agents — stay in your lane
+- Hypothetical future requirements
+
+Every agent inherits this filter from `agents/_base-reviewer.md`. The orchestrator (this file) and the `finding-verifier` agent in Phase 3 enforce it again.
 
 ## Anti-Patterns (DO NOT)
 
-- ❌ Report vague findings like "this could be improved" without a concrete fix
-- ❌ Inflate severity — a naming issue is P3, not P1
-- ❌ Suggest adding tests for code that already has adequate coverage
-- ❌ Mechanically apply every checklist item — use judgment about relevance
-- ❌ Report the same issue multiple times across different sections
-- ❌ Suggest refactors larger than the change being reviewed
-- ❌ Add findings about unchanged code (unless directly affected by the diff)
-- ❌ Start implementing fixes before user confirms
-- ❌ Ignore fake data / mock URLs / placeholder content in non-test code — always flag as P0/P1
+All Anti-Patterns are centralized in `agents/_base-reviewer.md`. The orchestrator-specific additions:
+
+- ❌ Start implementing fixes before user confirms (Phase 3 Step 6 gate)
+- ❌ Produce a final report that contains findings without a `Verified:` line — if present, route them through `finding-verifier` before output
+- ❌ Run the pipeline if the diff is empty — inform the user and suggest `project` mode or a different scope
+
+## Review Agents
+
+| Agent | Domain | Model | Condition |
+| ----- | ------ | ----- | --------- |
+| `security-reviewer` | Security, reliability, race conditions, supply chain, package manager consistency | opus | Always (REQUIRED) |
+| `testing-reviewer` | Test coverage, quality, anti-patterns | inherit | Always (REQUIRED) |
+| `quality-reviewer` | Runtime quality (error handling, perf, boundaries, concurrency, observability) + API contracts (breaking changes, backward compat, versioning) + dead code removal | inherit | Always unless `--focus` excludes. API sub-domain activates if API surface detected; removal sub-domain activates if dead-code signals detected. |
+| `solid-reviewer` | SOLID principles, architecture smells | opus | Unless `--quick` or `--focus` excludes |
+| `frontend-reviewer` | 7 frontend principles, a11y, perf, bundle, CSS, state, i18n, production readiness | inherit | If frontend files detected or `--focus frontend` |
+| `page-verifier` | Runtime page verification via Chrome DevTools MCP | inherit | If `--verify` AND `--url` provided AND MCP available |
+| `finding-verifier` | Evidence-based verification of all findings (replaces confidence scoring) | inherit | Always in Phase 3 |
+
+**Shared rules** for all review agents are in `agents/_base-reviewer.md` (Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format). Each individual agent file contains only its domain-specific signals and calibration.
+
+---
 
 ## Workflow
 
-### 1) Preflight Context ⛔ BLOCKING
+### Phase 1: Preflight Context ⛔ BLOCKING
 
 Determine review scope based on arguments:
 
 | Input | Command |
-|-------|---------|
+| ----- | ------- |
 | _(default)_ | **Smart detection** (see below) |
 | `staged` | `git diff --cached` |
 | `commit:<hash>` | `git show <hash>` |
@@ -69,17 +99,19 @@ Then:
 2. If diff is empty → inform user and ask if they meant a different scope.
 3. **Large input handling**: If diff > 2000 lines OR touches > 15 files, use two-pass review:
    - **Pass 1 (Quick scan)**: Skim all changes, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list with file:line and one-line reason. Do NOT produce findings yet.
-   - **Pass 2 (Deep review)**: For each hotspot, read the relevant code in detail, apply Steps 2–8 with full context expansion. Only this pass produces findings.
-   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1 and go directly to deep review.
+   - **Pass 2**: Pass the hotspot-filtered context to review agents in Phase 2.
+   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1 and pass full diff to agents.
 4. Detect primary language(s) from file extensions for language-specific checks.
-5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark as frontend-relevant for Step 6.
-6. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
-7. Identify critical paths: auth, payments, data writes, network, database migrations.
-8. **Package manager detection** (Node.js projects only): If any `package.json` exists in scope:
-   a. Check which lock files exist at each package root: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`
-   b. Extract the `packageManager` field from `package.json` (if present)
-   c. Check `scripts.preinstall` for enforcement hooks (e.g., `only-allow`)
-   d. Record signals for Step 3 (Security Scan)
+5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark `frontend_detected = true`.
+6. Detect API surface changes: files touching public interfaces, API endpoints, types/schemas, or exported functions. If found, mark `api_surface_detected = true`.
+7. Detect dead code signals: deprecated paths, stale feature flags, unused exports revealed by the diff. If found, mark `dead_code_detected = true`.
+8. Use `rg` or `grep` to find related modules, usages, and contracts when needed.
+9. Identify critical paths: auth, payments, data writes, network, database migrations.
+10. **Package manager detection** (Node.js projects only): If any `package.json` exists in scope:
+    a. Check which lock files exist at each package root: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`
+    b. Extract the `packageManager` field from `package.json` (if present)
+    c. Check `scripts.preinstall` for enforcement hooks (e.g., `only-allow`)
+    d. Record signals for security-reviewer
 
 #### Project Scope — Full Project Scan
 
@@ -89,7 +121,7 @@ When scope is `project` or `project:<path>`:
 2. Use `find` + file extension filters to collect source files. Respect `.gitignore` and exclude the following directories:
 
    | Category | Excluded directories |
-   |----------|---------------------|
+   | -------- | -------------------- |
    | **Dependencies** | `node_modules`, `vendor`, `bower_components` |
    | **Build outputs** | `dist`, `build`, `out`, `.output`, `target`, `bin`, `obj` |
    | **Framework artifacts** | `.next`, `.nuxt`, `.svelte-kit`, `.expo`, `storybook-static` |
@@ -99,7 +131,7 @@ When scope is `project` or `project:<path>`:
    | **VCS/IDE** | `.git`, `.idea`, `.vscode` |
    | **Deployment** | `.vercel`, `.netlify` |
 
-   Also exclude from content review: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries). Note: lock file _existence_ is still checked during Preflight (step 1.8) for package manager consistency — only their content diff is excluded.
+   Also exclude from content review: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries). Note: lock file _existence_ is still checked during Preflight for package manager consistency — only their content diff is excluded.
 3. Group files by top-level directory (module), count files and estimate total lines per module.
 4. **Confirmation gate** ⛔ BLOCKING — Before scanning, present the user with a summary and ask for explicit confirmation. Use the following format:
 
@@ -110,7 +142,7 @@ When scope is `project` or `project:<path>`:
    **Total**: X source files, ~Y lines across Z modules
 
    | Module | Files | ~Lines | Languages |
-   |--------|-------|--------|-----------|
+   | ------ | ----- | ------ | --------- |
    | src/components/ | 42 | ~3,200 | TypeScript, TSX |
    | src/services/ | 15 | ~1,800 | TypeScript |
    | src/utils/ | 8 | ~600 | TypeScript |
@@ -126,121 +158,128 @@ When scope is `project` or `project:<path>`:
    ```
 
 5. Wait for user confirmation. Do NOT proceed without it.
-6. After confirmation, apply the two-pass review strategy:
-   - **Pass 1 (Quick scan)**: Skim all modules, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list only.
-   - **Pass 2 (Deep review)**: For each hotspot, read full file contents, apply Steps 2–9 with context expansion. Only this pass produces findings.
+6. After confirmation, apply the two-pass strategy: Pass 1 identifies hotspots, then agents in Phase 2 receive hotspot-filtered context.
 7. For project scan, the Anti-Pattern rule "Add findings about unchanged code" does NOT apply — all code is in scope.
-8. Accumulate findings across all batches and present a single unified report in Step 11.
 
-### ⚠️ Universal Rule: Verify Before Reporting
+#### Preflight Context Block
 
-Applies to ALL review steps (2–8). For every potential finding, **verify context before including it in the report**:
+At the end of Phase 1, assemble the following context block to pass to all review agents:
 
-1. Use `rg`/`grep` to check callers, dependents, and related configuration.
-2. Read surrounding code to confirm the issue is real, not mitigated by existing safeguards.
-3. Only report findings that survive verification. If context disproves the issue, drop it silently.
+```markdown
+## Preflight Context
 
-This rule transforms the review from pattern-matching to verified analysis. A finding without verified context is not a finding.
+**Scope**: [scope type and description]
+**Files**: X files, Y lines changed
+**Languages**: [detected languages]
+**Frontend detected**: true/false
+**API surface detected**: true/false
+**Dead code signals**: true/false
+**Critical paths touched**: [list]
+**Package manager**: [if Node.js, manager + lock file + enforcement status]
+**Two-pass mode**: true/false (if true, only hotspot-filtered content below)
+**Quick mode**: true/false
+**Focus**: [focus area]
+**Min severity**: [level]
 
-### 2) SOLID + Architecture Smells
+### Changed Files
+| File | Lines +/- | Category |
+| ---- | --------- | -------- |
+| ... | ... | ... |
 
-> Skip if `--quick` or `--focus` excludes it.
+### Diff Content
+[full diff or hotspot-filtered diff]
+```
 
-Load `references/solid-checklist.md`.
+---
 
-- Check for SRP, OCP, LSP, ISP, DIP violations in changed code.
-- When proposing a refactor: explain _why_ it improves cohesion/coupling and outline a minimal, safe split.
-- If refactor is non-trivial, propose an incremental plan instead of a large rewrite.
+### Phase 2: Parallel Review Agents
 
-### 3) Security and Reliability Scan ⚠️ REQUIRED
+Based on Preflight results, launch review agents IN PARALLEL. Pass the Preflight Context Block as input to each agent. Each agent operates independently with zero cross-dependencies.
 
-Load `references/security-checklist.md`.
+#### Agent Launch Decision Matrix
 
-- Check for: XSS, injection, SSRF, path traversal, auth gaps, secret leakage, race conditions, unsafe deserialization, weak crypto.
-- For each finding, state both **exploitability** (how easy to trigger) and **impact** (what damage results).
-- After completing checklist items, ask: **"Based on my overall understanding of this code, are there risks the checklist didn't cover?"** — report any additional findings found through reasoning.
+`--focus` values: `all` (default), `security`, `testing`, `quality`, `performance` (alias → quality), `solid`, `api` (alias → quality, activates API sub-domain), `frontend`.
 
-### 4) Code Quality Scan
+| Agent | `all` | `security` | `testing` | `quality` / `performance` / `api` | `solid` | `frontend` | `--quick` |
+| ----- | ----- | ---------- | --------- | --------------------------------- | ------- | ---------- | --------- |
+| security-reviewer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ P0/P1 only |
+| testing-reviewer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ P0/P1 only |
+| quality-reviewer | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ P0/P1 only |
+| solid-reviewer | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| frontend-reviewer | if frontend detected | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| page-verifier | if `--verify` + MCP available | ❌ | ❌ | ❌ | ❌ | if `--verify` + MCP available | ❌ |
 
-Load `references/code-quality-checklist.md`.
+**Rules:**
 
-- Check for: error handling anti-patterns, performance issues (N+1, hot path CPU), boundary conditions (null, empty, off-by-one), concurrency bugs.
-- Flag issues that may cause silent failures or production incidents.
-- After completing checklist items, ask: **"Based on my overall understanding of this code, are there quality risks the checklist didn't cover?"**
+- `security-reviewer` and `testing-reviewer` are ALWAYS launched (even with `--focus` on other areas). They are safety-critical.
+- `--focus performance` is an alias that routes to `quality-reviewer` (runtime sub-domain).
+- `--focus api` is an alias that routes to `quality-reviewer` (API sub-domain activates regardless of Preflight detection).
+- When `--quick`: only security / testing / quality launch, each filtering output to P0/P1 only. solid / frontend / page-verifier skipped.
+- `quality-reviewer` internally activates its sub-domains based on Preflight signals: API sub-domain when `api_surface_detected = true`; Removal sub-domain when `dead_code_detected = true`.
+- `frontend-reviewer` only launches when Preflight marks `frontend_detected = true` OR user passes `--focus frontend`.
+- `page-verifier` only launches when `--verify` AND `--url` are provided AND Chrome DevTools MCP is reachable — otherwise it fails fast and reports a skip message.
 
-### 5) Testing Quality ⚠️ REQUIRED
+Wait for ALL launched agents to return their findings before proceeding to Phase 3. If an agent fails (timeout, tool error, MCP unreachable for page-verifier), record the failure in the final report's `Not Covered` section but do NOT block the remaining pipeline — degrade gracefully.
 
-Load `references/testing-checklist.md`.
+---
 
-- Are changed code paths covered by tests?
-- Do tests verify behavior, not implementation details?
-- Are edge cases and error paths tested?
-- Any test anti-patterns (flaky, over-mocking, testing private internals)?
-- After completing checklist items, ask: **"Based on my overall understanding of this code, are there testing gaps the checklist didn't cover?"**
+### Phase 3: Aggregation ⛔ BLOCKING
 
-### 6) Frontend Quality _(conditional)_
+After all agents complete, process their findings through verification-first pipeline. The ordering matters — do NOT reorder steps.
 
-> Only if Preflight detected frontend files, or `--focus frontend`.
+#### Step 1: Collect
 
-Load `references/frontend-checklist.md`.
+Gather findings from each completed agent. Each finding has a domain prefix: `SEC-NNN`, `TEST-NNN`, `SOLID-NNN`, `QUAL-NNN` (with sub-prefixes `QUAL-API-NNN` / `QUAL-REM-NNN`), `FE-NNN`, `PAGE-NNN`. Record which agent produced each finding for the `[source]` tag.
 
-First, apply the **Frontend Code Principles** (KISS, Component SRP, FP, DRY, Clean Architecture, YAGNI, Production Readiness) to evaluate code structure and design quality. Then check specific areas:
+Also collect each agent's `Not Covered` section — these merge into the final report.
 
-- **Production Readiness** ⚠️: Fake data, mock URLs, placeholder content, stub features — flag as P0/P1.
-- Accessibility: missing alt text, keyboard navigation, ARIA attributes, focus management.
-- Rendering performance: unnecessary re-renders, missing memoization, large lists without virtualization, memory leaks.
-- Bundle size: full library imports, missing code splitting, dev-only code in production.
-- CSS/styling: z-index wars, missing responsive handling, layout overflow issues.
-- State management: prop drilling, derived state stored separately, missing loading/error states.
-- i18n: hardcoded strings, string concatenation for sentences, text overflow with translations.
+#### Step 2: Deduplicate
 
-### 7) API & Contract Changes _(conditional)_
+Check for findings referencing the same `file:line`:
 
-> Only if diff touches public interfaces, API endpoints, types/schemas, or exported functions.
+- Two agents flagging the SAME issue at the same location → keep the finding from the more domain-specific agent (e.g., `security-reviewer` over `quality-reviewer` for an injection finding; `quality-reviewer` API sub-domain over `solid-reviewer` for a breaking export)
+- Two agents flagging DIFFERENT issues at the same location → keep both
 
-Load `references/api-contract-checklist.md`.
+Record which `file:line` locations were flagged by multiple agents — this feeds into Step 3 (consensus lock).
 
-- Check for: breaking changes, backward compatibility, versioning, documentation updates.
+#### Step 3: Evidence-Based Verification ⛔ BLOCKING (replaces confidence scoring)
 
-### 8) Removal Candidates _(conditional)_
+Launch the `finding-verifier` agent with the full merged findings list AND the Preflight Context Block. The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each finding and returns one of four outcomes per finding:
 
-> Only if diff reveals dead code, deprecated paths, or stale feature flags. Skip if `--quick`.
+| Outcome | Orchestrator action |
+| ------- | ------------------- |
+| `CONFIRMED` | Keep unchanged |
+| `DOWNGRADED` | Keep with adjusted severity and appended `[defense-in-depth]` or verifier's tag |
+| `REFUTED` | DROP (subject to safety overrides below) |
+| `NEEDS-MANUAL-REVIEW` | Keep with `[needs manual review]` tag, do NOT downgrade |
 
-Load `references/removal-plan.md`.
+**Safety overrides (enforced here, not only by the verifier):**
 
-- Distinguish **safe delete now** vs **defer with plan**.
-- Provide follow-up plan with concrete steps and checkpoints.
+- `SEC-*` with original severity P0 and outcome `CONFIRMED` → never DROP, never downgrade below P1
+- Any finding involving fake data / mock URL / placeholder in a prod-reachable code path → never DROP
+- **Consensus lock**: if a `file:line` was flagged by 2+ agents in Step 2, at least ONE finding at that location must survive verification — DOWNGRADE is permitted, REFUTE of all is not. If the verifier tried to REFUTE all, escalate the highest-severity one to `NEEDS-MANUAL-REVIEW` and keep it.
 
-### 9) Self-Check ⛔ BLOCKING
+This replaces the prior Haiku-scoring + Adversarial-Consensus pipeline. Verification replaces both scoring and severity promotion — a location that multiple agents flagged simply has multiple independent evidence trails, which the verifier considers when weighing each finding; there is no mechanical "severity +1 bump".
 
-Before presenting output, verify:
+#### Step 4: Self-Check
 
-- [ ] Every finding has exact `file:line` reference
-- [ ] Every finding has a justified severity level
-- [ ] No duplicate findings across sections
-- [ ] No vague suggestions without concrete fix proposals
-- [ ] Severity levels are not inflated (re-check each P0/P1)
-- [ ] Findings about unchanged code are marked as "adjacent risk"
-- [ ] "No issues" sections state what was checked and what wasn't covered
+Before output, verify the surviving findings:
 
-### 10) Page-Level Verification _(conditional)_
+- [ ] Every finding has an exact `file:line` reference
+- [ ] Every finding has a `Verified:` line (from the original agent) AND a verifier `Evidence:` line (from Step 3)
+- [ ] Every finding has a justified severity level consistent with the base Severity calibration in `agents/_base-reviewer.md`
+- [ ] No duplicate findings remain
+- [ ] No vague suggestions without a concrete, implementable fix
+- [ ] Severity not inflated — re-check each P0/P1 against the calibration rules
+- [ ] For `project` scope: findings about unchanged code are in scope; for other scopes: flag any that slipped in as `[adjacent risk]` or drop
+- [ ] Agents with "no findings" have their `Not Covered` sections merged into the report
+- [ ] If any agent FAILED to run (timeout, tool error, MCP unreachable), record in `Not Covered`
+- [ ] Apply `--min-severity` filter: drop all findings below the threshold
+- [ ] HIGH SIGNAL pass: re-scan surviving findings against the filter list from `agents/_base-reviewer.md` — drop any that match (linter-catchable, pre-existing, pedantic, speculative, etc.)
 
-> Only if `--verify` and `--url` are provided. Requires Chrome DevTools MCP.
+#### Step 5: Format Output
 
-Load `references/page-verification-guide.md`.
-
-1. Navigate to the provided URL.
-2. **Console errors**: Capture errors/warnings — uncaught exceptions are P0, framework warnings are P1.
-3. **Fake data detection**: Inspect network requests for `localhost`/mock URLs; evaluate runtime for mock flags and placeholder text.
-4. **Lighthouse audit**: Run a11y + best practices snapshot — score < 50 is P1, 50-89 is P2.
-5. **A11y tree snapshot**: Check semantic structure, missing labels, heading hierarchy.
-6. **Visual check**: Desktop screenshot + mobile viewport (375px) — check layout overflow, broken images, blank sections.
-7. **Dark mode** _(if applicable)_: Emulate dark color scheme, check for invisible text or hardcoded colors.
-8. **Performance trace** _(optional)_: Only if page feels slow — report LCP, INP, CLS.
-
-Append results to the main review output as a "Page Verification Results" section.
-
-### 11) Output
+Use markdown link format for `file:line` references so they are clickable in IDE clients (VSCode extension, JetBrains, etc.): `[src/auth/login.ts:42](src/auth/login.ts#L42)`.
 
 ```markdown
 ## Code Review Summary
@@ -248,6 +287,7 @@ Append results to the main review output as a "Page Verification Results" sectio
 **Scope**: [what was reviewed]
 **Files reviewed**: X files, Y lines changed
 **Primary language(s)**: [detected]
+**Agents launched**: [list of agents that ran; mark failed agents as `name (failed)`]
 **Overall assessment**: [APPROVE / REQUEST_CHANGES / COMMENT]
 
 ---
@@ -258,13 +298,17 @@ Append results to the main review output as a "Page Verification Results" sectio
 (none or list)
 
 ### P1 - High
-1. **[file:line]** Brief title
+1. **[src/auth/login.ts:42](src/auth/login.ts#L42)** SQL injection via username `[SEC-001]`
    - **Risk**: What goes wrong and how likely
    - **Fix**: Specific code change or approach
+   - **Verified**: Evidence from the original agent + verifier (merged)
 
-> **Security findings** that claim external exploitability MUST include two additional fields:
-> - **Attack path**: Entry point → framework/middleware handling → vulnerable code (trace the full chain)
-> - **Confidence**: `Confirmed exploitable` / `Defense-in-depth gap` (framework blocks but code lacks protection) / `Needs verification`
+> **Security findings** claiming external exploitability MUST include:
+>
+> - **Attack path**: Entry point → framework/middleware handling → vulnerable code
+> - **Confidence**: `Confirmed exploitable` / `Defense-in-depth gap` / `Needs verification`
+>
+> **Quality sub-domain findings** keep their sub-prefix: `QUAL-API-NNN` (breaking change — include `Consumers affected`), `QUAL-REM-NNN` (removal — include `Classification: Safe Delete | Defer with Plan`).
 
 ### P2 - Medium
 2. (continue numbering across sections)
@@ -275,16 +319,19 @@ Append results to the main review output as a "Page Verification Results" sectio
 
 ---
 
-## Removal/Iteration Plan
-(if applicable)
+## Removal / Iteration Plan
+(if any `QUAL-REM-*` findings were classified as "Defer with Plan")
 
 ## Not Covered
-(areas outside review scope or requiring manual verification)
+(merged from all agents — areas outside review scope, unverifiable claims, failed agents)
+
+## Page Verification Results
+(if page-verifier ran — appended as separate section)
 ```
 
-**Clean review**: If no issues found, explicitly state what was checked and any residual risks.
+**Clean review**: If no issues found across all agents, explicitly state what was checked by each agent and any residual risks.
 
-### 12) Next Steps Confirmation ⚠️ REQUIRED
+#### Step 6: Next Steps Confirmation ⚠️ REQUIRED
 
 ```markdown
 ---
@@ -303,15 +350,18 @@ I found X issues (P0: _, P1: _, P2: _, P3: _).
 
 **Do NOT implement any changes until user explicitly confirms.**
 
+---
+
 ## Resources
 
-| File | Purpose | When to Load |
-|------|---------|--------------|
-| `references/solid-checklist.md` | SOLID smell prompts and refactor heuristics | Step 2 |
-| `references/security-checklist.md` | Security, reliability, race conditions, package manager consistency | Step 3 |
-| `references/code-quality-checklist.md` | Error handling, performance, boundary conditions | Step 4 |
-| `references/testing-checklist.md` | Test quality, coverage, anti-patterns | Step 5 |
-| `references/frontend-checklist.md` | Code principles, a11y, perf, bundle, CSS, state, i18n | Step 6 (conditional) |
-| `references/api-contract-checklist.md` | Breaking changes, compatibility, versioning | Step 7 (conditional) |
-| `references/removal-plan.md` | Deletion candidates and follow-up planning | Step 8 (conditional) |
-| `references/page-verification-guide.md` | Chrome DevTools MCP page-level verification | Step 10 (conditional, `--verify`) |
+| File | Purpose | Used By |
+| ---- | ------- | ------- |
+| `agents/_base-reviewer.md` | Shared meta-rules: Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format | ALL review agents (inherited) |
+| `references/security-checklist.md` | Security, reliability, race conditions, package manager consistency, attack-chain verification procedure | security-reviewer |
+| `references/code-quality-checklist.md` | Error handling, performance, boundary conditions, concurrency, observability | quality-reviewer (runtime sub-domain) |
+| `references/api-contract-checklist.md` | Breaking changes, backward compatibility, type safety, versioning | quality-reviewer (API sub-domain) |
+| `references/removal-plan.md` | Safe-delete vs defer-with-plan templates for dead code | quality-reviewer (removal sub-domain) |
+| `references/solid-checklist.md` | SOLID smell prompts and refactor heuristics | solid-reviewer |
+| `references/testing-checklist.md` | Test quality, coverage, anti-patterns, language-specific checks | testing-reviewer |
+| `references/frontend-checklist.md` | 7 frontend principles, a11y, perf, bundle, CSS, state, i18n, production readiness | frontend-reviewer |
+| `references/page-verification-guide.md` | Chrome DevTools MCP verification procedures | page-verifier |
