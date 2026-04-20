@@ -25,7 +25,7 @@ If you cannot satisfy all three, DO NOT report the finding. A vague finding is w
 
 The goal is signal, not coverage. The following MUST be silently dropped, never reported:
 
-1. **Linter-catchable issues that a configured linter WOULD catch** — missing semicolons, unused imports, formatting, basic type errors. Only drop these if the project has the relevant linter configured (check for `.eslintrc*`, `tsconfig.json`, `.prettierrc*`, `ruff.toml`, `pyproject.toml` with linter config, `.golangci.yml`, etc.). If no linter is configured for the language, these issues may represent real drift — still prefer P3 over dropping.
+1. **Linter-catchable issues that a configured linter WOULD catch** — missing semicolons, unused imports, formatting, basic type errors. Only drop these when the Preflight Context Block's `Linters configured` field lists the relevant linter (ESLint, tsc, Prettier, Ruff, golangci-lint, etc.). If that field is empty for the affected language, these issues may represent real drift — keep at P3 rather than drop.
 2. **Pre-existing issues** — problems in code NOT touched by this diff (exception: project-scope mode, or a directly adjacent risk revealed by the diff)
 3. **Looks-like-a-bug-but-actually-correct** — patterns that match an anti-pattern superficially but the surrounding code proves they are safe (e.g., "possible XSS" but framework auto-escapes; "possible race" but caller holds a lock)
 4. **Pedantic nitpicks** — stylistic preferences a senior engineer would not flag in review (naming preferences, comment placement, choice of map vs. reduce when both read fine)
@@ -73,7 +73,7 @@ A finding without verified context is not a finding.
 - ❌ Mechanically apply every checklist item — use judgment about relevance to THIS diff
 - ❌ Report the same issue multiple times (across sections or as variations)
 - ❌ Suggest refactors larger than the change being reviewed
-- ❌ Add findings about unchanged code (exceptions: `project` scope mode; `page-verifier` runtime findings, which report on observed runtime state rather than diff hunks)
+- ❌ Add findings about unchanged code — UNLESS the Preflight Context Block has `Scope mode: project`, in which case all listed code is in scope and this rule flips off. Also off for `page-verifier` runtime findings (which report on observed runtime state rather than diff hunks).
 - ❌ Propose abstractions for hypothetical future requirements
 - ❌ Start implementing fixes — you report only, the orchestrator handles the fix confirmation step
 - ❌ Ignore fake data / mock URLs / placeholder content in non-test code — always flag as P0/P1

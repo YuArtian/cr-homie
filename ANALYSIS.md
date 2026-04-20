@@ -297,13 +297,16 @@ Anthropic 官方 `code-review` 插件的核心设计原则：
 11. quality-reviewer blast radius 显式阈值（5+/跨模块=P0，1-4 同模块=P1，仅测试=P2）
 12. CHANGELOG.md 新增 v3.0.0 条目
 
-### 待办：P1 批次（非破坏性 bug 修复）
+### 已完成：P1 批次（2026-04-20）
 
-- [ ] Smart Detection 优先级调整 — 当前 `unstaged → staged → branch` 会让 "2 行未保存改动遮蔽 20 个 commit 的 branch"。方案：branch 优先，或 Preflight 让用户选。
-- [ ] Project Scan 硬限制 — 大项目超 context window 时无降级，需加 max-files / max-lines 阈值与 hotspot 回退
-- [ ] Project 模式与 agent prompt 冲突 — agent 内部仍写 "Do NOT add findings about unchanged code"，[SKILL.md](SKILL.md) 的 override 没注入到 agent 系统提示，需要显式传标志
-- [ ] README.md / README.zh-CN.md 同步到 v3 架构（目前仍提 confidence-scorer / api-reviewer / removal-reviewer）
-- [ ] [agent.yaml](agents/agent.yaml) 评估：启用承担更多职责 或 删除
+5 项全部落地，未 commit 的工作区文件：`SKILL.md`、`agents/_base-reviewer.md`、`agents/agent.yaml`、`README.md`、`README.zh-CN.md`。
+
+- [x] **Smart Detection 优先级调整** — 改为三路信号并行采集 + 分支上下文决策：`main` 分支回退到 unstaged/staged，feature 分支默认 branch diff；多信号都有内容时展示摘要让用户覆盖。消除"2 行未保存遮蔽 20 个 commit branch"陷阱。
+- [x] **Project Scan 硬限制** — 新增软/硬限制表（300 文件/50k 行软警告，1k 文件/150k 行硬门槛）。硬门槛下 "Scan all" 被替换为"缩小范围 / hotspot-only / 取消"三选一，杜绝 context window 溢出。
+- [x] **Project 模式 prompt 冲突** — Preflight Context Block 新增 `Scope mode: diff | project` 字段；`_base-reviewer.md` 的 "Add findings about unchanged code" anti-pattern 显式引用该字段来决定是否翻转。
+- [x] **Linter 检测**（顺便修复）— Preflight 新增 Step 11 探测 ESLint / tsc / Prettier / Ruff / mypy / Flake8 / Pylint / golangci-lint / Clippy 配置；`Linters configured` 写入 Preflight Context Block。HIGH SIGNAL 规则 #1 改为引用该字段。
+- [x] **agent.yaml 更新** — `short_description` 和 `default_prompt` 重写以反映 v3 证据验证 + 6 agent 并行架构。
+- [x] **README.md / README.zh-CN.md 同步** — 全文重写反映 v3：架构图、workflow、参数、输出示例、组件列表、"Verification > Scoring" 说明。
 
 ### 待办：P2 批次（润色）
 
@@ -314,6 +317,7 @@ Anthropic 官方 `code-review` 插件的核心设计原则：
 
 ### 关键决策记录（供下次对话续接）
 
-- **Agent 合并方案**：api 和 removal 都并入 quality-reviewer 作为子域（已确认并落地）
-- **执行节奏**：分批推进，P0 完成后停下 review 再决定是否继续（用户明确偏好，见 `~/.claude/projects/-Users-yuartian-git-cr-homie/memory/user_work_style.md`）
-- **next action**：用户 review 完 v3 后决定是否进入 P1；若要继续，从 Smart Detection 优先级开始（影响面最小、收益最直接）
+- **Agent 合并方案**：api 和 removal 都并入 quality-reviewer 作为子域（已落地）
+- **执行节奏**：分批推进，每批完成后暂停让用户 review（用户明确偏好）
+- **下一步**：P1 已完成，用户可 review 当前工作区 diff 后决定是否 commit + push，或继续 P2
+- **P2 注意事项**：P2 都是 nice-to-have，没有 P1/P0 的紧迫性。启动前建议先评估 cr-homie 在真实项目上的使用体验，再决定哪一项最优先

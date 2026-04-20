@@ -86,21 +86,57 @@ Determine review scope based on arguments:
 | `project` | Full project scan (all source files in working directory) |
 | `project:<path>` | Full project scan limited to `<path>` subdirectory |
 
-**Smart detection** (when no scope argument is provided): Run these checks in order, use the first one that has content:
+**Smart detection** (when no scope argument is provided): context-aware pick based on current branch, NOT a fixed priority chain.
 
-1. `git diff` — unstaged changes exist? → use unstaged diff
-2. `git diff --cached` — staged changes exist? → use staged diff
-3. `git diff main...HEAD` — current branch ahead of main? → use branch diff
-4. All empty → inform user "没有检测到可 review 的内容", suggest `project` mode or specifying a scope explicitly
+**Step 1 — gather signals** (run all three in parallel, record line counts for each):
+
+| Signal | Command |
+| ------ | ------- |
+| unstaged | `git diff --stat` |
+| staged | `git diff --cached --stat` |
+| branch-vs-main | `git diff main...HEAD --stat` (skip if on `main` / `master`) |
+
+**Step 2 — pick the scope by branch context:**
+
+| Current branch | Default scope | Rationale |
+| -------------- | ------------- | --------- |
+| `main` / `master` / `trunk` | unstaged → staged → "nothing to review" | On the trunk, uncommitted work is what's under review; branch diff would be empty or misleading |
+| any other branch (feature branch) | branch-vs-main → unstaged → staged | On a feature branch, the full branch delta represents the unit of work; a tiny unstaged edit should NOT mask a 20-commit branch |
+
+**Step 3 — confirm before committing to the scope** (⛔ BLOCKING gate):
+
+When multiple signals have content (e.g., on feature branch with both branch diff AND unstaged edits), present a one-screen summary and let the user override:
+
+```markdown
+## Scope detection
+
+Current branch: <branch>
+Detected:
+- Branch diff (vs main): X files, Y lines (default)
+- Unstaged: A files, B lines
+- Staged: C files, D lines
+
+**Proceeding with**: <default scope per table above>
+
+Reply with `staged`, `unstaged`, or explicit scope (e.g., `commit:HEAD`) to override; otherwise press enter / say "go" to continue.
+```
+
+Skip this gate if only ONE signal has content — proceed silently.
+
+Skip this gate if the user invoked with an explicit scope argument — the arg always wins.
+
+All applicable signals empty (both unstaged/staged on `main`; all three on a feature branch) → inform user "没有检测到可 review 的内容", suggest `project` mode or an explicit scope.
 
 Then:
 
-1. Run `git diff --stat` (for the determined scope) to get file list and line counts.
-2. If diff is empty → inform user and ask if they meant a different scope.
+1. Use the per-file breakdown already captured in Step 1 for the determined scope — do NOT re-run `git diff --stat`.
+2. If the determined-scope diff is empty despite signals claiming content (e.g., binary-only changes) → inform user and ask if they meant a different scope.
 3. **Large input handling**: If diff > 2000 lines OR touches > 15 files, use two-pass review:
    - **Pass 1 (Quick scan)**: Skim all changes, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list with file:line and one-line reason. Do NOT produce findings yet.
-   - **Pass 2**: Pass the hotspot-filtered context to review agents in Phase 2.
-   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1 and pass full diff to agents.
+   - **Pass 2**: The orchestrator constructs the Preflight Context Block differently depending on recipient:
+     - **For Phase 2 agents (hotspot-focused)**: Diff Content is the hotspot-filtered slice (saves context window). Two-pass mode = true.
+     - **For Phase 3 `finding-verifier`**: Diff Content is the FULL original diff (needed to verify locations and trace attack chains). The verifier additionally has Bash access to re-run `git diff ...` if needed.
+   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1. Everyone gets the full diff. Two-pass mode = false.
 4. Detect primary language(s) from file extensions for language-specific checks.
 5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark `frontend_detected = true`.
 6. Detect API surface changes: files touching public interfaces, API endpoints, types/schemas, or exported functions. If found, mark `api_surface_detected = true`.
@@ -112,6 +148,20 @@ Then:
     b. Extract the `packageManager` field from `package.json` (if present)
     c. Check `scripts.preinstall` for enforcement hooks (e.g., `only-allow`)
     d. Record signals for security-reviewer
+11. **Linter detection** — probe for linter configs at repo root and record which are present. Used by agents to decide whether HIGH SIGNAL rule #1 (drop linter-catchable findings) applies:
+
+    | Linter | Signal files |
+    | ------ | ------------ |
+    | ESLint | `.eslintrc*`, `eslint.config.{js,mjs,ts,cjs}`, `"eslintConfig"` in `package.json` |
+    | TypeScript (`tsc`) | `tsconfig.json` anywhere in scope |
+    | Prettier | `.prettierrc*`, `prettier.config.{js,mjs,cjs}`, `"prettier"` in `package.json` |
+    | Ruff | `ruff.toml`, `[tool.ruff]` in `pyproject.toml` |
+    | mypy | `mypy.ini`, `[tool.mypy]` in `pyproject.toml` |
+    | Flake8 / Pylint | `.flake8`, `setup.cfg` with `[flake8]`, `.pylintrc` |
+    | golangci-lint | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml` |
+    | Clippy (Rust) | `clippy.toml` OR any Rust project (Clippy ships with rustup) |
+
+    Record the list of detected linters in the Preflight Context Block's `Linters configured` field.
 
 #### Project Scope — Full Project Scan
 
@@ -133,7 +183,33 @@ When scope is `project` or `project:<path>`:
 
    Also exclude from content review: generated files, lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`, `Cargo.lock`), and binary assets (images, fonts, compiled binaries). Note: lock file _existence_ is still checked during Preflight for package manager consistency — only their content diff is excluded.
 3. Group files by top-level directory (module), count files and estimate total lines per module.
-4. **Confirmation gate** ⛔ BLOCKING — Before scanning, present the user with a summary and ask for explicit confirmation. Use the following format:
+4. **Hard limits + degradation** ⛔ BLOCKING — before showing the preview, enforce these thresholds to prevent context-window overflow:
+
+   | Metric | Soft limit (warn) | Hard limit (force degradation) |
+   | ------ | ----------------- | ------------------------------ |
+   | Total files | 300 | 1,000 |
+   | Total lines | 50,000 | 150,000 |
+   | Single module | 150 files OR 25,000 lines | 500 files OR 75,000 lines |
+
+   When soft limit exceeded: show the preview with a ⚠️ warning banner and a recommendation to narrow scope via `project:<path>`.
+
+   When hard limit exceeded: DO NOT show "Scan all" as an option. Replace the 3-option menu with:
+
+   ```markdown
+   ⛔ **Project exceeds scan limits** — this would overflow the model context window.
+
+   **Options:**
+
+   1. **Narrow scope** — pick a specific subdirectory, e.g., `project:src/services/`
+   2. **Hotspot-only mode** — I'll run Pass 1 (hotspot detection) only and return a prioritized list WITHOUT per-agent findings; you then pick hotspots to review in a follow-up
+   3. **Cancel** — abort
+
+   I cannot scan the full project within context bounds.
+   ```
+
+   User MUST pick option 1 or 2 — "Scan all" is not offered when hard limit is breached.
+
+5. **Confirmation gate** ⛔ BLOCKING — within limits (or after user narrowed scope): present the user with a summary and ask for explicit confirmation. Use the following format:
 
    ```markdown
    ## Project Scan Preview
@@ -157,9 +233,9 @@ When scope is `project` or `project:<path>`:
    3. **Cancel** — Abort project scan
    ```
 
-5. Wait for user confirmation. Do NOT proceed without it.
-6. After confirmation, apply the two-pass strategy: Pass 1 identifies hotspots, then agents in Phase 2 receive hotspot-filtered context.
-7. For project scan, the Anti-Pattern rule "Add findings about unchanged code" does NOT apply — all code is in scope.
+6. Wait for user confirmation. Do NOT proceed without it.
+7. After confirmation, apply the two-pass strategy: Pass 1 identifies hotspots, then agents in Phase 2 receive hotspot-filtered context.
+8. For project scan, the Anti-Pattern rule "Add findings about unchanged code" does NOT apply — all code is in scope. This is communicated to agents via the `Scope mode: project` field in the Preflight Context Block (see below).
 
 #### Preflight Context Block
 
@@ -169,14 +245,16 @@ At the end of Phase 1, assemble the following context block to pass to all revie
 ## Preflight Context
 
 **Scope**: [scope type and description]
-**Files**: X files, Y lines changed
+**Scope mode**: `diff` | `project` (⚠️ if `project`, agents MUST flip the "Add findings about unchanged code" anti-pattern — all code in listed modules is in scope)
+**Files**: X files, Y lines (changed for diff scope / total for project scope)
 **Languages**: [detected languages]
+**Linters configured**: [list of detected linter configs — ESLint, tsc, Prettier, Ruff, golangci-lint, etc. Empty if none. Agents MUST check this before dropping findings under HIGH SIGNAL rule #1.]
 **Frontend detected**: true/false
 **API surface detected**: true/false
 **Dead code signals**: true/false
 **Critical paths touched**: [list]
 **Package manager**: [if Node.js, manager + lock file + enforcement status]
-**Two-pass mode**: true/false (if true, only hotspot-filtered content below)
+**Two-pass mode**: true/false
 **Quick mode**: true/false
 **Focus**: [focus area]
 **Min severity**: [level]
@@ -187,8 +265,10 @@ At the end of Phase 1, assemble the following context block to pass to all revie
 | ... | ... | ... |
 
 ### Diff Content
-[full diff or hotspot-filtered diff]
+[For Phase 2 recipients in two-pass mode: hotspot-filtered slice with file:line citations preserved. For Phase 3 finding-verifier: ALWAYS the full original diff. For all recipients when not in two-pass mode: the full diff.]
 ```
+
+The orchestrator is responsible for assembling the right variant per recipient. Agents must not attempt to compensate for a partial diff by refusing to report — they trust the orchestrator's slice and focus on what's given.
 
 ---
 

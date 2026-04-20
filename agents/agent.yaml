@@ -1,7 +1,8 @@
 interface:
   display_name: "CR Homie"
-  short_description: "Senior engineer code review: SOLID, security, performance, testing, API contracts, error handling, race conditions. Supports full project scan."
-  default_prompt: "Review current git changes for SOLID violations, security risks, race conditions, error handling issues, performance problems, testing gaps, API breaking changes, and boundary condition bugs."
+  short_description: "Evidence-based code review: 6 specialized agents run in parallel, then a verifier agent proves or refutes each finding using grep/read/bash — not numeric scoring. Covers security (attack-chain verification), quality (runtime + API contracts + dead code), SOLID, testing, frontend (7 principles + a11y + bundle), and optional runtime page verification via Chrome DevTools MCP."
+  default_prompt: "Review the current git changes. Run security, quality, SOLID, testing, and (if frontend detected) frontend reviewers in parallel; then verify each finding against the code and drop refuted ones. Report P0/P1/P2/P3 findings with file:line, concrete risk, fix, and verifier evidence. Do not implement fixes without my confirmation."
 
-# Agent-agnostic skill - works with any LLM provider.
-# No provider-specific configuration required.
+# Agent-agnostic skill — works with any LLM provider supporting multi-agent orchestration.
+# See SKILL.md for the full Phase 1 (Preflight) → Phase 2 (Parallel Reviewers) → Phase 3 (Verification + Aggregation) workflow.
+# See agents/_base-reviewer.md for shared rules (Iron Law, HIGH SIGNAL filter, Severity calibration).

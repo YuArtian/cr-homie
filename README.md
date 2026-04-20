@@ -1,6 +1,6 @@
 # CR Homie
 
-A comprehensive code review skill for AI agents. Performs structured reviews with a senior engineer lens, covering architecture, security, performance, testing, frontend quality, API contracts, and code quality.
+An evidence-based code review skill for AI agents. Six specialized reviewers run in parallel, then an independent verifier agent proves or refutes each finding against the codebase — replacing numeric confidence scoring with fact-checking.
 
 ## Installation
 
@@ -8,106 +8,100 @@ A comprehensive code review skill for AI agents. Performs structured reviews wit
 npx skills add YuArtian/cr-homie
 ```
 
-## Features
+## What it checks
 
-- **SOLID Principles** — Detect SRP, OCP, LSP, ISP, DIP violations with refactor heuristics
-- **Security Scan** — XSS, injection, SSRF, race conditions, auth gaps, secrets leakage, package manager consistency. **Attack chain verification**: traces entry point → framework/middleware → vulnerable code before reporting exploitability
-- **Performance** — N+1 queries, CPU hotspots, missing cache, memory issues
-- **Error Handling** — Swallowed exceptions, async errors, missing boundaries
-- **Boundary Conditions** — Null handling, empty collections, off-by-one, numeric limits
-- **Testing Quality** — Coverage gaps, test anti-patterns, over-mocking, flaky tests
-- **Frontend Quality** — Code principles (KISS, FP, DRY, YAGNI, Clean Architecture), a11y, rendering perf, bundle, CSS, state, i18n
-- **Fake Data Detection** — Hardcoded mock data, placeholder content, stub features flagged as P0/P1
-- **API Contracts** — Breaking changes, backward compatibility, versioning
-- **Removal Planning** — Identify dead code with safe deletion plans
-- **Observability** — Logging gaps, missing metrics, alerting blind spots
-- **Page Verification** — Runtime validation via Chrome DevTools MCP: Lighthouse, console errors, network inspection, visual checks
+- **Security** — XSS, injection, SSRF, path traversal, auth/authz gaps, secret leakage, race conditions, supply chain, package manager consistency. Every exploitable claim is backed by a traced attack chain (entry → framework/middleware → vulnerable code) and a confidence label: `Confirmed exploitable` / `Defense-in-depth gap` / `Needs verification`.
+- **Quality** (three sub-domains in one agent)
+  - Runtime quality — error handling, performance (N+1, hot-path CPU, missing cache), boundary conditions, concurrency, observability
+  - API contracts — breaking changes in REST/GraphQL/exports/schemas, backward compatibility, type safety regressions, versioning
+  - Dead code removal — unused exports, deprecated paths, stale feature flags, with safe-delete vs defer-with-plan recommendations
+- **SOLID** — SRP/OCP/LSP/ISP/DIP violations, code smells, with incremental refactor plans sized to the current diff
+- **Testing** — coverage gaps, behavioral vs implementation-detail tests, anti-patterns (flakiness, over-mocking, testing private internals), language-specific checks for JS/TS/Go/Python/Java
+- **Frontend** — 7 code principles (KISS, Component SRP, FP, DRY, Clean Architecture, YAGNI, Production Readiness), a11y, rendering perf, bundle, CSS, state, i18n. Fake data / mock URLs in prod code paths are always P0/P1.
+- **Page verification** (optional) — runtime validation via Chrome DevTools MCP: console errors, fake network requests, Lighthouse audits, a11y tree, visual layout, dark mode, performance traces.
 
-## How It Works
+## How it works
 
-### Design Principles
+### Design principles
 
-- **Review-first** — Only outputs findings. Never auto-fixes code until you explicitly confirm
-- **Iron Law** — Every finding must cite exact `file:line`, explain the concrete risk, and propose a specific fix. No vague advice like "consider improving error handling"
-- **Verify before reporting** — Every finding must be validated against surrounding context (callers, route definitions, config) before inclusion. Pattern-match alone is not enough
-- **Multi-agent parallel** — Specialized review agents run in parallel, each with its own domain expertise and checklist, reducing context pressure and improving speed
-- **Confidence scoring** — A dedicated scoring agent evaluates each finding (0-100) to filter false positives before output
-- **Conditional activation** — Frontend quality, API contract checks, removal planning, and page verification only activate when relevant code is detected
-- **Anti-pattern guarded** — Explicit rules prevent severity inflation, duplicate findings, and out-of-scope suggestions
+- **Verification > Scoring** — findings are validated by an independent verifier agent that uses `grep`, `Read`, and `Bash` to check attack chains, callers, tests, and consumers. Replaces the previous Haiku-scoring filter.
+- **HIGH SIGNAL only** — 9 explicit categories are silently dropped (linter-catchable, pre-existing, looks-like-a-bug-but-correct, pedantic nitpicks, speculative refactors, already-tested, generic advice, cross-agent duplicates, hypothetical future needs).
+- **Iron Law** — every finding MUST cite exact `file:line`, describe a realistic risk scenario, and propose a specific fix. No vague advice like "consider improving error handling".
+- **Review-first** — the skill reports findings and waits for your confirmation before implementing any fix.
+- **Shared meta-rules** — Iron Law, HIGH SIGNAL filter, Severity calibration, Verify Before Reporting, and Anti-Patterns live in a single file ([agents/_base-reviewer.md](agents/_base-reviewer.md)) inherited by every reviewer, so rules can't drift between agents.
+- **Multi-agent parallel** — domain-specific reviewers run concurrently on the same Preflight Context Block, reducing token pressure and improving coverage.
+- **Conditional activation** — frontend, page verification, and the API / removal sub-domains of the quality reviewer only activate when Preflight detects relevant signals.
 
 ### Architecture
 
 ```
 Phase 1: Preflight (orchestrator)
-    ↓ Preflight Context Block
+    ├─→ Smart scope detection (branch-aware — branch diff on feature branch, unstaged/staged on main)
+    ├─→ Two-pass mode if diff > 2000 lines or > 15 files
+    ├─→ Detect languages, frontend, API surface, dead code, linter configs, package manager
+    └─→ Build Preflight Context Block
+    ↓
 Phase 2: Parallel Review Agents
-    ├─→ security-reviewer   [opus]    ← always
-    ├─→ testing-reviewer    [inherit] ← always
-    ├─→ quality-reviewer    [inherit]
-    ├─→ solid-reviewer      [opus]
-    ├─→ frontend-reviewer   [inherit] ← if frontend detected
-    ├─→ api-reviewer        [inherit] ← if API changes detected
-    ├─→ removal-reviewer    [inherit] ← if dead code detected
-    └─→ page-verifier       [inherit] ← if --verify + --url
+    ├─→ security-reviewer   [opus]    ← always required
+    ├─→ testing-reviewer    [inherit] ← always required
+    ├─→ quality-reviewer    [inherit] ← runtime + API (if detected) + dead code (if detected)
+    ├─→ solid-reviewer      [opus]    ← unless --quick or --focus excludes
+    ├─→ frontend-reviewer   [inherit] ← if frontend detected or --focus frontend
+    └─→ page-verifier       [inherit] ← if --verify + --url + MCP available
     ↓ findings from all agents
 Phase 3: Aggregation (orchestrator)
-    ├─→ Deduplicate + multi-agent consensus severity promotion
-    ├─→ confidence-scorer   [haiku]   ← score & filter findings
-    ├─→ Self-check validation
-    ├─→ Format output report
-    └─→ Next steps confirmation
+    ├─→ Collect + Deduplicate
+    ├─→ finding-verifier    [inherit] ← CONFIRMED / DOWNGRADED / REFUTED / NEEDS-MANUAL-REVIEW
+    ├─→ Safety overrides (SEC-P0 strong-evidence bar, production readiness, consensus lock)
+    ├─→ Self-check + HIGH SIGNAL re-filter
+    ├─→ Format output (markdown-link file:line, merge verification evidence)
+    └─→ Next-steps confirmation ⚠️
 ```
 
 ### Workflow
 
-1. **Phase 1: Preflight** ⛔ — **Smart detection**: when no scope is specified, auto-detects unstaged → staged → branch diff (uses the first with content). Collects changed files, detects language(s), identifies critical paths (auth, payments, data writes), detects frontend files and API surface changes. If diff is empty, suggests `project` mode. If >2000 lines or >15 files, uses **two-pass review** (Pass 1: quick scan for hotspots; Pass 2: filtered context to agents). Assembles a Preflight Context Block for all agents.
+1. **Phase 1: Preflight** ⛔ — Runs all three scope signals (unstaged, staged, branch-vs-main) in parallel and picks based on current branch: on `main` it falls back to uncommitted work; on a feature branch the branch diff is the default (so a tiny unstaged edit cannot mask a 20-commit branch). When multiple signals have content, shows a one-screen summary and lets you override before committing to a scope. Detects languages, frontend files, API surface, dead code signals, linter configs (ESLint/tsc/Prettier/Ruff/golangci-lint/etc. — controls HIGH SIGNAL linter-catchable filter), package manager consistency. If diff > 2000 lines OR > 15 files → two-pass mode (Pass 1 hotspot detection, Pass 2 filtered context to agents). For `project` scope, enforces hard limits (300 files / 50k lines soft warn; 1k files / 150k lines hard gate that forces you to narrow or switch to hotspot-only mode).
 
-2. **Phase 2: Parallel Agents** — Launches specialized review agents in parallel based on Preflight signals:
-   - `security-reviewer` (opus) ⚠️ — XSS, injection, SSRF, auth gaps, race conditions, attack chain verification
-   - `testing-reviewer` (inherit) ⚠️ — Coverage gaps, test quality, anti-patterns
-   - `quality-reviewer` (inherit) — Error handling, N+1, boundaries, observability
-   - `solid-reviewer` (opus) — SRP/OCP/LSP/ISP/DIP, architecture smells
-   - `frontend-reviewer` (inherit) _(conditional)_ — Code principles, a11y, perf, bundle, state, i18n
-   - `api-reviewer` (inherit) _(conditional)_ — Breaking changes, backward compatibility, versioning
-   - `removal-reviewer` (inherit) _(conditional)_ — Dead code identification, cleanup plans
-   - `page-verifier` (inherit) _(conditional)_ — Runtime page verification via Chrome DevTools MCP
+2. **Phase 2: Parallel agents** — 2 always run (security, testing) + quality (unless focus excludes) + solid (unless --quick) + frontend and page-verifier conditionally. All inherit shared rules from `agents/_base-reviewer.md`. Each agent must attach a `Verified:` line showing which callers / tests / framework behavior it checked before reporting.
 
-3. **Phase 3: Aggregation** ⛔ — Deduplicates findings across agents. When 2+ agents flag the same location, promotes severity by one level (adversarial consensus). Launches `confidence-scorer` (haiku) to evaluate each finding 0-100, drops low-confidence findings (<70). Runs self-check validation, formats structured output, and presents next steps for user confirmation.
+3. **Phase 3: Aggregation** ⛔ — Deduplicates overlapping findings. `finding-verifier` then reads the full original diff (never the two-pass filtered slice) plus each finding's file:line context and returns one of four outcomes per finding. Safety overrides protect Security P0s (REFUTE requires strong, unambiguous evidence), fake-data-in-prod findings, and co-flagged locations (at least one must survive). The orchestrator then merges agent `Verified:` with verifier `Evidence:` into a single field, converts `file:line` to IDE-clickable markdown links, applies `--min-severity`, runs a final HIGH SIGNAL sweep, and asks you how to proceed.
 
 > ⛔ = BLOCKING (must complete before proceeding) · ⚠️ = REQUIRED (must not skip)
 
 ## Usage
 
 ```bash
-/cr-homie                        # Smart detect: unstaged → staged → branch diff
+/cr-homie                        # Smart scope detection based on current branch
 /cr-homie staged                 # Review staged changes
 /cr-homie commit:abc123          # Review a specific commit
 /cr-homie pr:42                  # Review a PR
-/cr-homie project                # Full project scan (all source files)
+/cr-homie branch:feat/login      # Review a named branch vs main
+/cr-homie project                # Full project scan (subject to hard limits)
 /cr-homie project:src/           # Scan only src/ directory
 /cr-homie --focus security       # Focus on security only
+/cr-homie --focus quality        # Focus on quality (includes API + dead code sub-domains)
 /cr-homie --focus frontend       # Focus on frontend quality
-/cr-homie --quick                # Quick scan (P0/P1 only)
-/cr-homie --verify --url http://localhost:3000  # Code review + page verification
+/cr-homie --quick                # P0/P1 only; skip SOLID and frontend
+/cr-homie --verify --url http://localhost:3000   # Code review + runtime page verification
 ```
 
 ### Parameters
 
 | Parameter | Description | Default |
-|-----------|-------------|---------|
-| `<scope>` | What to review: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | smart detection |
-| `--focus <area>` | Limit to: `security`, `solid`, `performance`, `quality`, `testing`, `frontend`, `api`, `all` | `all` |
+| --------- | ----------- | ------- |
+| `<scope>` | `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | branch-aware smart detection |
+| `--focus <area>` | `security`, `quality` (includes `performance` and `api` aliases), `solid`, `testing`, `frontend`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
-| `--quick` | Only report P0/P1, skip SOLID and removal analysis | off |
-| `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url`) | off |
+| `--quick` | P0/P1 only; skip SOLID and frontend | off |
+| `--verify` | Enable runtime page verification (requires `--url` and Chrome DevTools MCP) | off |
 | `--url <url>` | Dev server URL for page verification | — |
 
-## Output Example
+## Output example
 
 ```markdown
 ## Code Review Summary
 
-**Scope**: unstaged changes
+**Scope**: branch diff vs main (feat/login)
 **Files reviewed**: 3 files, 87 lines changed
 **Primary language(s)**: TypeScript
 **Agents launched**: security-reviewer, testing-reviewer, quality-reviewer, solid-reviewer
@@ -121,25 +115,28 @@ Phase 3: Aggregation (orchestrator)
 (none)
 
 ### P1 - High
-1. **src/auth/login.ts:42** SQL injection via string interpolation `[SEC-001]` `[security]`
-   - **Attack path**: `POST /api/login` → Express route `req.body.username` → `login()` → raw SQL concat
-   - **Risk**: Attacker can extract/modify database via crafted username input
+1. **[src/auth/login.ts:42](src/auth/login.ts#L42)** SQL injection via username `[SEC-001]`
+   - **Risk**: Attacker can extract/modify the users table via crafted username in POST /api/login
+   - **Attack path**: POST /api/login → Express JSON body → login(req.body.username) → raw SQL concat at line 42
    - **Confidence**: Confirmed exploitable
    - **Fix**: Use parameterized query: `db.query('SELECT * FROM users WHERE name = ?', [username])`
+   - **Verified**: Grepped callers of `login()` — only called from POST /api/login with no upstream validation; verifier: Confirmed — input flows unsanitized from JSON body to the raw concat.
 
 ### P2 - Medium
-2. **src/services/file.ts:73** Path concatenation without validation `[SEC-002]` `[security]`
-   - **Attack path**: `GET /files/{name}` → Express `req.params.name` only matches single segment (no `/`) → `../` blocked at route level
-   - **Risk**: Code lacks its own path validation, relies on framework routing behavior
+2. **[src/services/file.ts:73](src/services/file.ts#L73)** Path concat without validation `[SEC-002]` `[defense-in-depth gap]`
+   - **Risk**: Code lacks its own path validation, relies on Express routing behavior
+   - **Attack path**: GET /files/{name} → Express `req.params.name` matches a single segment → `../` blocked at the route level
    - **Confidence**: Defense-in-depth gap
-   - **Fix**: Add `path.resolve()` + prefix check to match `deleteFile()` pattern
+   - **Fix**: Add `path.resolve()` + prefix check to match the `deleteFile()` pattern
+   - **Verified**: Grepped route definitions; verifier: Downgraded — framework blocks the input, but code-level validation absent.
 
-3. **src/services/order.ts:118** Read-modify-write without transaction `[QUAL-001]` `[quality]`
+3. **[src/services/order.ts:118](src/services/order.ts#L118)** Read-modify-write without transaction `[QUAL-001]`
    - **Risk**: Concurrent orders can oversell inventory under load
-   - **Fix**: Wrap in transaction with `SELECT ... FOR UPDATE`
+   - **Fix**: Wrap in a transaction with `SELECT ... FOR UPDATE`
+   - **Verified**: Grepped callers; no outer transaction; verifier: Confirmed — race window is real under concurrent checkout.
 
 ### P3 - Low
-4. **src/utils/format.ts:7** Magic number 86400 `[SOLID-001]` `[solid]`
+4. **[src/utils/format.ts:7](src/utils/format.ts#L7)** Magic number 86400 `[SOLID-001]`
    - **Risk**: Readability — unclear what 86400 represents
    - **Fix**: Extract to `const SECONDS_PER_DAY = 86400`
 
@@ -150,28 +147,30 @@ Phase 3: Aggregation (orchestrator)
 - No integration test environment available to verify query changes
 ```
 
-## Severity Levels
+## Severity levels
 
-| Level | Name | Description | Action |
-|-------|------|-------------|--------|
-| P0 | Critical | Security vulnerability, data loss, correctness bug | Must block merge |
-| P1 | High | Logic error, major SOLID violation, perf regression, missing critical tests | Should fix before merge |
-| P2 | Medium | Code smell, minor SOLID violation, test gaps | Fix in this PR or create follow-up |
-| P3 | Low | Style, naming, minor suggestion | Optional improvement |
+| Level | Must do |
+| ----- | ------- |
+| **P0** | Block merge — exploitable security, data loss, correctness bug, fake data in prod path |
+| **P1** | Fix before merge — significant vulnerability, logic error in critical path, missing critical tests, breaking API change without migration |
+| **P2** | Fix in this PR or create follow-up — defense-in-depth gap, code smell, missing edge tests |
+| **P3** | Optional — style, naming, minor optimization |
 
-## Review Agents
+Full calibration rules and examples: [agents/_base-reviewer.md](agents/_base-reviewer.md).
+
+## Review agents
 
 | Agent | Domain | Model | Condition |
-|-------|--------|-------|-----------|
-| `security-reviewer` | Security, reliability, race conditions, supply chain | opus | Always (required) |
+| ----- | ------ | ----- | --------- |
+| `security-reviewer` | Security, reliability, race conditions, supply chain, package manager consistency | opus | Always (required) |
 | `testing-reviewer` | Test coverage, quality, anti-patterns | inherit | Always (required) |
-| `quality-reviewer` | Error handling, performance, boundaries, observability | inherit | Default on |
-| `solid-reviewer` | SOLID principles, architecture smells | opus | Default on (skip with --quick) |
-| `frontend-reviewer` | Frontend principles, a11y, perf, bundle, state, i18n | inherit | If frontend files detected |
-| `api-reviewer` | Breaking changes, compatibility, versioning | inherit | If API surface changes |
-| `removal-reviewer` | Dead code, deprecated paths, stale feature flags | inherit | If dead code detected |
-| `page-verifier` | Runtime page verification via Chrome DevTools MCP | inherit | If --verify + --url |
-| `confidence-scorer` | Finding quality scoring, false positive filtering | haiku | Always in Phase 3 |
+| `quality-reviewer` | Runtime quality + API contracts + dead code removal (three sub-domains, single agent) | inherit | Unless `--focus` excludes |
+| `solid-reviewer` | SOLID principles, architecture smells | opus | Unless `--quick` or `--focus` excludes |
+| `frontend-reviewer` | 7 frontend principles, a11y, perf, bundle, CSS, state, i18n, production readiness | inherit | If frontend detected or `--focus frontend` |
+| `page-verifier` | Runtime page verification via Chrome DevTools MCP | inherit | If `--verify` + `--url` + MCP available |
+| `finding-verifier` | Evidence-based verification (replaces confidence scoring) | inherit | Always in Phase 3 |
+
+Shared meta-rules inherited by every reviewer live in [agents/_base-reviewer.md](agents/_base-reviewer.md).
 
 ## Structure
 
@@ -179,30 +178,29 @@ Phase 3: Aggregation (orchestrator)
 cr-homie/
 ├── SKILL.md                             # 3-phase orchestration workflow
 ├── agents/
-│   ├── agent.yaml                       # Agent interface + trigger keywords
-│   ├── security-reviewer.md             # Security + reliability agent
-│   ├── testing-reviewer.md              # Testing quality agent
-│   ├── solid-reviewer.md                # SOLID + architecture agent
-│   ├── quality-reviewer.md              # Code quality agent
-│   ├── frontend-reviewer.md             # Frontend quality agent (conditional)
-│   ├── api-reviewer.md                  # API contracts agent (conditional)
-│   ├── removal-reviewer.md              # Removal planning agent (conditional)
-│   ├── page-verifier.md                 # Page verification agent (conditional)
-│   └── confidence-scorer.md             # Finding quality scoring agent
+│   ├── agent.yaml                       # Skill interface metadata
+│   ├── _base-reviewer.md                # Shared meta-rules (Iron Law, HIGH SIGNAL, Severity, Verify, Anti-Patterns, output format)
+│   ├── security-reviewer.md             # Security + reliability + package manager consistency
+│   ├── quality-reviewer.md              # Runtime quality + API contracts + dead code removal
+│   ├── solid-reviewer.md                # SOLID + architecture smells
+│   ├── testing-reviewer.md              # Testing quality + coverage
+│   ├── frontend-reviewer.md             # Frontend quality (conditional)
+│   ├── page-verifier.md                 # Runtime page verification (conditional)
+│   └── finding-verifier.md              # Evidence-based verification agent (Phase 3)
 └── references/                          # Knowledge base (loaded by each agent)
-    ├── solid-checklist.md               # SOLID smell prompts + language-specific flags
-    ├── security-checklist.md            # OWASP risks, race conditions, crypto, supply chain
+    ├── security-checklist.md            # OWASP risks, race conditions, crypto, supply chain, attack-chain verification procedure
     ├── code-quality-checklist.md        # Error handling, N+1, caching, boundaries, observability
-    ├── testing-checklist.md             # Coverage, test quality, anti-patterns
-    ├── frontend-checklist.md            # Code principles + a11y, perf, bundle, CSS, state, i18n
-    ├── api-contract-checklist.md        # Breaking changes, backward compat, versioning
+    ├── api-contract-checklist.md        # Breaking changes, backward compatibility, versioning
     ├── removal-plan.md                  # Safe-delete vs defer-with-plan templates
+    ├── solid-checklist.md               # SOLID smell prompts + language-specific flags
+    ├── testing-checklist.md             # Coverage, test quality, anti-patterns
+    ├── frontend-checklist.md            # 7 code principles + a11y, perf, bundle, CSS, state, i18n
     └── page-verification-guide.md       # Chrome DevTools MCP verification procedures
 ```
 
-Each review agent loads only its own checklist from `references/`, keeping per-agent context usage efficient.
+Each review agent loads only its own checklist(s) from `references/`, keeping per-agent context usage efficient.
 
-## Page Verification (Chrome DevTools MCP)
+## Page verification (Chrome DevTools MCP)
 
 When `--verify --url <url>` is provided, CR Homie goes beyond static code review and validates the running page:
 
@@ -210,26 +208,29 @@ When `--verify --url <url>` is provided, CR Homie goes beyond static code review
 /cr-homie --verify --url http://localhost:5173
 ```
 
-**Prerequisite**: Install Chrome DevTools MCP server:
+**Prerequisite**: Install the Chrome DevTools MCP server:
 
 ```bash
 claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
 ```
 
+If the MCP server is not connected, the page-verifier fails fast with a skip notice and the rest of the review still runs.
+
 **What it checks**:
 
 | Check | How | Severity |
-|-------|-----|----------|
+| ----- | --- | -------- |
+| HTTP status | navigate + status | 5xx = P0; public 4xx = P1; auth-required 401/403 = P3 |
 | Console errors | `list_console_messages` filter error/warn | Uncaught error = P0, framework warning = P1 |
-| Fake data | `list_network_requests` + `evaluate_script` | Mock URLs / placeholder text = P1 |
-| Accessibility | `lighthouse_audit` + `take_snapshot` (a11y tree) | Score < 50 = P1, missing labels = P2 |
+| Fake data | `list_network_requests` + `evaluate_script` | Mock URLs in prod build = P0, placeholder text = P1 |
+| Accessibility | `lighthouse_audit` + `take_snapshot` | Score < 50 = P1, missing labels = P2 |
 | Visual layout | `take_screenshot` desktop + mobile (375px) | Overflow / broken layout = P2 |
 | Dark mode | `emulate` colorScheme: dark | Invisible text / hardcoded colors = P2 |
 | Performance | `performance_start_trace` (optional) | LCP > 2.5s = P1, CLS > 0.25 = P1 |
 
-## Frontend Code Principles
+## Frontend code principles
 
-When reviewing frontend code, CR Homie applies these principles (detailed checks in `frontend-checklist.md`):
+When reviewing frontend code, CR Homie applies these 7 principles (detailed checks in [references/frontend-checklist.md](references/frontend-checklist.md)):
 
 1. **KISS** — Delete what can be deleted. Most direct implementation wins.
 2. **Component SRP** — One component = one reason to change. Componentize, but don't over-split.
@@ -237,7 +238,17 @@ When reviewing frontend code, CR Homie applies these principles (detailed checks
 4. **DRY** — Extract shared patterns at the third occurrence. Two is coincidence, three is a pattern.
 5. **Clean Architecture** — Naming as documentation. Reading the code reveals intent without comments.
 6. **YAGNI** — Build for today's requirements. No speculative abstractions.
-7. **Production Readiness** ⚠️ — No fake data, no mock URLs, no stub features in production code (P0/P1).
+7. **Production Readiness** ⚠️ — No fake data, no mock URLs, no stub features in production code (always P0/P1).
+
+## Why verification instead of scoring
+
+Scoring asks *"Does this finding sound correct?"* — prone to keeping plausible-sounding false positives.
+
+Verification asks *"Can I prove this finding reaches the described failure mode?"* — requires evidence, catches hallucinations.
+
+Code-review false positives almost always share the same shape: the pattern looks dangerous, but context already mitigates it (framework auto-escaping, upstream middleware, existing transaction, existing test). A scorer reading only the finding's text can't see that context. A verifier with grep/read can. This is the same design choice made by Anthropic's official `code-review` plugin, Cursor BugBot V11, and CodeRabbit's sandbox validation — reached after each project's scoring-only pipeline plateaued around ~50% precision.
+
+See [ANALYSIS.md](ANALYSIS.md) for the full industry benchmark and the reasoning behind the v3 architecture.
 
 ## License
 

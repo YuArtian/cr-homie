@@ -1,5 +1,46 @@
 # Changelog
 
+## v3.1.0 — 2026-04-20
+
+> 主题：Preflight 强化 —— 分支感知探测、Project Scan 硬限制、Linter 检测、文档同步
+
+### 行为变更（用户可见）
+
+- **Smart Detection 不再是固定优先级链** — 改为分支感知：
+  - 在 `main` / `master` / `trunk`：默认 unstaged，回退到 staged
+  - 在其他分支：默认 branch-vs-main，回退到 unstaged/staged
+  - 多个信号都有内容时展示摘要让用户覆盖（之前会静默选第一个）
+- **Project Scan 硬限制** — 超过 1,000 文件或 150,000 行时，"Scan all" 选项被移除，强制用户选 "缩小范围 / hotspot-only / 取消"。防止 context window 溢出。300 文件 / 50,000 行为软警告。
+- **HIGH SIGNAL linter-catchable 规则收紧** — 只有当项目实际配置了对应 linter（`.eslintrc*` / `tsconfig.json` / `ruff.toml` / `.golangci.yml` 等）时才 drop；无 linter 项目保留为 P3 而非丢弃。
+
+### 新增
+
+- **Preflight Step 11 — Linter 检测** — 探测 ESLint / tsc / Prettier / Ruff / mypy / Flake8 / Pylint / golangci-lint / Clippy 配置文件，结果写入 Preflight Context Block 的 `Linters configured` 字段。
+- **Preflight Context Block 新字段** — `Scope mode: diff | project` 显式告知 agent 当前是 diff 审查还是 project 全扫描，`_base-reviewer.md` 的 anti-pattern 据此决定 "Add findings about unchanged code" 是否翻转。
+- **Two-pass mode 分流**：Phase 2 agent 收到 hotspot-filtered diff（节省 context window），Phase 3 finding-verifier 永远收完整原始 diff（用于验证 file:line 和攻击链）。orchestrator 根据接收方构造不同的 Diff Content。
+
+### 修复
+
+- **Smart Detection 遮蔽陷阱** — 之前 unstaged 优先会让 2 行未保存改动遮蔽一条 20 个 commit 的 feature 分支工作
+- **Two-pass + verifier 误 REFUTE** — 之前 verifier 也拿 hotspot-filtered diff，当 finding 的 `file:line` 在过滤切片外时会错误 REFUTE。现在 verifier 始终拿完整 diff
+- **`--focus performance` 和 `--focus api` 死参数** — 明确为 `quality` 的别名（`api` 还会激活 API 子域）
+- **Preflight Step 1 重复跑 `git diff --stat`** — 修改为复用 Smart Detection Step 1 采集的 per-file 数据
+
+### 变更
+
+- **agent.yaml** — `short_description` / `default_prompt` 改为反映 v3 证据验证 + 6 reviewer + 1 verifier 架构
+- **README.md / README.zh-CN.md** — 全文同步到 v3（架构图、工作流、参数、输出示例、"Verification > Scoring" 说明、v3.1 的新行为）
+
+### 修改文件
+
+- `SKILL.md` — Smart Detection 重写、Project Scan 硬限制、Linter 检测、Scope mode 字段、Two-pass 分流
+- `agents/_base-reviewer.md` — HIGH SIGNAL 规则 #1 引用 `Linters configured`、unchanged code anti-pattern 引用 `Scope mode`
+- `agents/agent.yaml` — 描述更新到 v3
+- `README.md`、`README.zh-CN.md` — 全文同步
+- `ANALYSIS.md` — 进度日志追加
+
+---
+
 ## v3.0.0 — 2026-04-17
 
 > 主题：Verification > Scoring — 从打分过滤升级到证据验证
