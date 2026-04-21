@@ -76,7 +76,19 @@ A finding without verified context is not a finding.
 - ❌ Add findings about unchanged code — UNLESS the Preflight Context Block has `Scope mode: project`, in which case all listed code is in scope and this rule flips off. Also off for `page-verifier` runtime findings (which report on observed runtime state rather than diff hunks).
 - ❌ Propose abstractions for hypothetical future requirements
 - ❌ Start implementing fixes — you report only, the orchestrator handles the fix confirmation step
-- ❌ Ignore fake data / mock URLs / placeholder content in non-test code — always flag as P0/P1
+- ❌ Ignore fake data / mock URLs / placeholder content in non-test code — always flag as P0/P1 when in a prod-reachable code path (see below)
+
+## Prod-Reachable Code Path — heuristic
+
+Several rules (fake-data detection, Safety Override in Phase 3) depend on whether code is "prod-reachable". A code path is **NOT prod-reachable** when ANY of these holds:
+
+1. **Test / story / fixture file** — filename matches `*.test.*`, `*.spec.*`, `*.stories.*`, `__tests__/*`, `tests/*`, `test_*.py`, `*_test.go`, or sits under `fixtures/` / `mocks/`
+2. **Dev-only environment gate** — the code is guarded by `process.env.NODE_ENV === 'development'`, `if __debug__`, `#[cfg(debug_assertions)]`, `if (isDev)` with `isDev` pinned to a dev constant, or equivalent framework dev flag
+3. **Dev-only route / entry** — registered only under a dev router (`/_dev/*`, `/__devtools/*`, Storybook entry) or behind a dev-server-only middleware
+4. **Excluded by build tool** — tree-shaken or stripped by the production build config (`vite.config` `build.rollupOptions.external`, webpack `DefinePlugin` gating, Next.js `process.env.NODE_ENV` constant folding), verifiable by reading the build config
+5. **Dead code after the diff** — the change in this diff makes the code unreachable (e.g., removed last caller), pending removal
+
+If NONE of 1-5 applies, treat the code path as prod-reachable. When uncertain, **default to treating as prod-reachable** — false positives from over-reporting are cheaper than missing fake data in production.
 
 ## Finding Output Format
 

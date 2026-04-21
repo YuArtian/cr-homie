@@ -56,7 +56,7 @@ Each finding MUST include:
 - For performance claims: grep usage count and check render frequency before claiming "memo this" — unused-to-occasional components don't need memo
 - For a11y: read the component's rendered output AND check wrappers/higher-order components that may already supply labels/roles
 - For bundle size: check if the heavy import is tree-shakeable (`import { X } from 'lib'` vs `import X from 'lib'`)
-- For production readiness: confirm the fake pattern is reachable in a prod build (not behind `process.env.NODE_ENV === 'development'`, not in `.test.` / `.stories.` files, not in a dev-only route)
+- For production readiness: apply the "Prod-Reachable Code Path" heuristic from `agents/_base-reviewer.md` — drop the finding only if the code path matches one of the 5 non-prod-reachable signals; when uncertain, keep the finding
 
 ## Severity Calibration (domain-specific, still follows base table)
 

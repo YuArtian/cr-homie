@@ -34,7 +34,7 @@ npx skills add YuArtian/cr-homie
 
 ### 架构
 
-```
+```text
 Phase 1: 预检（编排器）
     ├─→ 智能 scope 探测（感知当前分支 —— 在 feature 分支默认走 branch diff；在 main 回退到 unstaged/staged）
     ├─→ 大 diff（>2000 行或 >15 文件）走 two-pass
@@ -89,7 +89,7 @@ Phase 3: 聚合（编排器）
 
 | 参数 | 说明 | 默认值 |
 | ---- | ---- | ------ |
-| `<scope>` | `staged`、`commit:<hash>`、`pr:<number>`、`branch:<name>`、`project[:<path>]` 或文件路径 | 基于分支的智能探测 |
+| `<scope>` | `staged`、`commit:<hash>`、`pr:<number>`（需要 [`gh` CLI](https://cli.github.com/)）、`branch:<name>`（与探测到的默认分支对比）、`project[:<path>]` 或文件路径 | 基于分支的智能探测 |
 | `--focus <area>` | `security`、`quality`（含 `performance` 和 `api` 别名）、`solid`、`testing`、`frontend`、`all` | `all` |
 | `--min-severity <level>` | 最低报告严重级：`P0`、`P1`、`P2`、`P3` | `P3` |
 | `--quick` | 只报 P0/P1，跳过 SOLID 和前端 | off |
@@ -174,7 +174,7 @@ Phase 3: 聚合（编排器）
 
 ## 目录结构
 
-```
+```text
 cr-homie/
 ├── SKILL.md                             # 三阶段编排工作流
 ├── agents/

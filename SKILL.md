@@ -73,46 +73,62 @@ All Anti-Patterns are centralized in `agents/_base-reviewer.md`. The orchestrato
 
 ### Phase 1: Preflight Context ⛔ BLOCKING
 
-Determine review scope based on arguments:
+#### Step 0 — Repo probes (run once, reuse everywhere below)
 
-| Input | Command |
-| ----- | ------- |
-| _(default)_ | **Smart detection** (see below) |
-| `staged` | `git diff --cached` |
-| `commit:<hash>` | `git show <hash>` |
-| `pr:<number>` | `gh pr diff <number>` |
-| `branch:<name>` | `git diff main...<name>` |
-| file path | `git diff -- <path>` |
-| `project` | Full project scan (all source files in working directory) |
-| `project:<path>` | Full project scan limited to `<path>` subdirectory |
+Before any scope work, gather these facts about the repo:
 
-**Smart detection** (when no scope argument is provided): context-aware pick based on current branch, NOT a fixed priority chain.
+- **Default branch** (`$DEFAULT_BRANCH`):
+  1. Try `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix
+  2. If that fails (no origin remote / never fetched), probe locally: `main`, `master`, `develop`, `trunk` — use the first that `git rev-parse --verify` accepts
+  3. Still nothing → record `$DEFAULT_BRANCH = null` and skip all branch-vs-default comparisons in Smart Detection; ask user to pass an explicit scope (`commit:<hash>` or `branch:<name>` or `staged` / `unstaged`)
+- **Current branch** (`$CURRENT_BRANCH`): `git symbolic-ref --short -q HEAD`. If it fails (detached HEAD — on a tag or commit), record `$CURRENT_BRANCH = null`. In this state, Smart Detection falls back to unstaged → staged only; branch-vs-default is skipped.
+- **`gh` CLI availability**: `command -v gh`. Record as `$HAS_GH = true/false`. Used to gate `pr:<number>` scope.
 
-**Step 1 — gather signals** (run all three in parallel, record line counts for each):
+#### Step 1 — Determine review scope based on arguments
 
-| Signal | Command |
-| ------ | ------- |
-| unstaged | `git diff --stat` |
-| staged | `git diff --cached --stat` |
-| branch-vs-main | `git diff main...HEAD --stat` (skip if on `main` / `master`) |
+| Input | Command | Prerequisite |
+| ----- | ------- | ------------ |
+| _(default)_ | **Smart detection** (see below) | — |
+| `staged` | `git diff --cached` | — |
+| `commit:<hash>` | `git show <hash>` | hash must exist |
+| `pr:<number>` | `gh pr diff <number>` | `$HAS_GH = true`; if false, error with install hint: `brew install gh` or `https://cli.github.com/` |
+| `branch:<name>` | `git diff $DEFAULT_BRANCH...<name>` | `$DEFAULT_BRANCH ≠ null`; `<name>` must exist |
+| file path | `git diff -- <path>` | — |
+| `project` | Full project scan (all source files in working directory) | — |
+| `project:<path>` | Full project scan limited to `<path>` subdirectory | — |
 
-**Step 2 — pick the scope by branch context:**
+**Smart detection** (when no scope argument is provided): context-aware pick based on current branch, NOT a fixed priority chain. Uses `$DEFAULT_BRANCH` and `$CURRENT_BRANCH` from Step 0.
 
-| Current branch | Default scope | Rationale |
-| -------------- | ------------- | --------- |
-| `main` / `master` / `trunk` | unstaged → staged → "nothing to review" | On the trunk, uncommitted work is what's under review; branch diff would be empty or misleading |
-| any other branch (feature branch) | branch-vs-main → unstaged → staged | On a feature branch, the full branch delta represents the unit of work; a tiny unstaged edit should NOT mask a 20-commit branch |
+**Step 2a — gather applicable signals** (run in parallel, record line counts for each):
 
-**Step 3 — confirm before committing to the scope** (⛔ BLOCKING gate):
+| Signal | Command | Skip when |
+| ------ | ------- | --------- |
+| unstaged | `git diff --stat` | — |
+| staged | `git diff --cached --stat` | — |
+| branch-vs-default | `git diff $DEFAULT_BRANCH...HEAD --stat` | `$DEFAULT_BRANCH = null` OR `$CURRENT_BRANCH = null` (detached HEAD) OR `$CURRENT_BRANCH = $DEFAULT_BRANCH` |
+
+Only signals not skipped run; the number of signals varies (typically 2 on trunk / detached HEAD, 3 on a feature branch with origin).
+
+**Step 2b — pick the scope by branch context:**
+
+| Current state | Default scope (in priority order) | Rationale |
+| ------------- | -------------------------------- | --------- |
+| On `$DEFAULT_BRANCH` (trunk) | unstaged → staged → "nothing to review" | On the trunk, uncommitted work is what's under review; branch diff would be empty |
+| Detached HEAD (`$CURRENT_BRANCH = null`) | unstaged → staged → "nothing to review, pass explicit `commit:<hash>`" | No branch to compare; usually means user checked out a tag or specific commit |
+| No `$DEFAULT_BRANCH` found | unstaged → staged → "nothing to review, pass explicit scope" | Can't compare against anything |
+| Any other branch (feature branch) | branch-vs-default → unstaged → staged | On a feature branch, the full branch delta represents the unit of work; a tiny unstaged edit should NOT mask a 20-commit branch |
+
+**Step 2c — confirm before committing to the scope** (⛔ BLOCKING gate):
 
 When multiple signals have content (e.g., on feature branch with both branch diff AND unstaged edits), present a one-screen summary and let the user override:
 
 ```markdown
 ## Scope detection
 
-Current branch: <branch>
+Current branch: <$CURRENT_BRANCH or "(detached HEAD)">
+Default branch: <$DEFAULT_BRANCH or "(not found)">
 Detected:
-- Branch diff (vs main): X files, Y lines (default)
+- Branch diff (vs $DEFAULT_BRANCH): X files, Y lines (default)
 - Unstaged: A files, B lines
 - Staged: C files, D lines
 
@@ -125,18 +141,18 @@ Skip this gate if only ONE signal has content — proceed silently.
 
 Skip this gate if the user invoked with an explicit scope argument — the arg always wins.
 
-All applicable signals empty (both unstaged/staged on `main`; all three on a feature branch) → inform user "没有检测到可 review 的内容", suggest `project` mode or an explicit scope.
+All applicable signals empty → inform user "没有检测到可 review 的内容", suggest `project` mode or an explicit scope.
 
 Then:
 
 1. Use the per-file breakdown already captured in Step 1 for the determined scope — do NOT re-run `git diff --stat`.
 2. If the determined-scope diff is empty despite signals claiming content (e.g., binary-only changes) → inform user and ask if they meant a different scope.
 3. **Large input handling**: If diff > 2000 lines OR touches > 15 files, use two-pass review:
-   - **Pass 1 (Quick scan)**: Skim all changes, identify high-risk hotspots by code type (backend routes/data layer/frontend components/state management). Output a hotspot list with file:line and one-line reason. Do NOT produce findings yet.
+   - **Pass 1 (Quick scan — orchestrator-inline, NO separate agent)**: The orchestrator itself skims the full diff and produces a hotspot list (file:line + one-line reason), grouped by code type (backend routes, data layer, frontend components, state management, config/infra). No agent is launched for Pass 1 — delegating this to a sub-agent would just fan out the same large diff that two-pass is trying to avoid. Do NOT produce findings at this stage; hotspots are annotations, not findings.
    - **Pass 2**: The orchestrator constructs the Preflight Context Block differently depending on recipient:
-     - **For Phase 2 agents (hotspot-focused)**: Diff Content is the hotspot-filtered slice (saves context window). Two-pass mode = true.
+     - **For Phase 2 agents (hotspot-focused)**: Diff Content is the hotspot-filtered slice (saves context window). Two-pass mode = true. Agents prioritize hotspots but may surface highly material findings elsewhere — they are not forbidden from touching non-hotspot regions, just optimized for the hotspots.
      - **For Phase 3 `finding-verifier`**: Diff Content is the FULL original diff (needed to verify locations and trace attack chains). The verifier additionally has Bash access to re-run `git diff ...` if needed.
-   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1. Everyone gets the full diff. Two-pass mode = false.
+   - For smaller diffs (≤ 2000 lines AND ≤ 15 files), skip Pass 1 entirely. Everyone gets the full diff. Two-pass mode = false.
 4. Detect primary language(s) from file extensions for language-specific checks.
 5. Detect frontend code: files matching `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.less`, or framework configs (`next.config`, `vite.config`, `nuxt.config`, etc.). If found, mark `frontend_detected = true`.
 6. Detect API surface changes: files touching public interfaces, API endpoints, types/schemas, or exported functions. If found, mark `api_surface_detected = true`.
@@ -320,15 +336,11 @@ Check for findings referencing the same `file:line`:
 - Two agents flagging the SAME issue at the same location → keep the finding from the more domain-specific agent (e.g., `security-reviewer` over `quality-reviewer` for an injection finding; `quality-reviewer` API sub-domain over `solid-reviewer` for a breaking export)
 - Two agents flagging DIFFERENT issues at the same location → keep both
 
-Record which `file:line` locations were flagged by multiple agents — this feeds into Step 3 (consensus lock).
+Record which `file:line` locations were flagged by 2+ different agents with DIFFERENT issues — this list feeds the consensus lock safety override inside Step 3.
 
 #### Step 3: Evidence-Based Verification ⛔ BLOCKING (replaces confidence scoring)
 
-Launch the `finding-verifier` agent with the full merged findings list AND the Preflight Context Block.
-
-**Important — full diff required**: even when Phase 1 used two-pass mode (hotspot-filtered diff for Phase 2 agents), the verifier MUST receive the **full original diff**, not the hotspot-filtered version. A finding's `file:line` citation refers to the full diff; verifying against a filtered slice would produce false REFUTEs when the cited line was trimmed out.
-
-The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each finding and returns one of four outcomes per finding:
+Launch the `finding-verifier` agent with the full merged findings list AND the Preflight Context Block assembled for Phase 3 — which, per Phase 1 Step 3, always carries the FULL original diff (never the hotspot-filtered slice that Phase 2 agents received). The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each finding and returns one of four outcomes per finding:
 
 | Outcome | Orchestrator action |
 | ------- | ------------------- |
@@ -340,7 +352,7 @@ The verifier uses `Grep` / `Read` / `Bash` to gather concrete evidence for each 
 **Safety overrides (enforced here, not only by the verifier):**
 
 - `SEC-*` with original severity P0 and outcome `CONFIRMED` → never DROP, never downgrade below P1
-- Any finding involving fake data / mock URL / placeholder in a prod-reachable code path → never DROP
+- Any finding involving fake data / mock URL / placeholder in a **prod-reachable code path** (see the heuristic in `agents/_base-reviewer.md` → "Prod-Reachable Code Path") → never DROP
 - **Consensus lock**: if a `file:line` was flagged by 2+ agents in Step 2, at least ONE finding at that location must survive verification — DOWNGRADE is permitted, REFUTE of all is not. If the verifier tried to REFUTE all, escalate the highest-severity one to `NEEDS-MANUAL-REVIEW` and keep it.
 
 This replaces the prior Haiku-scoring + Adversarial-Consensus pipeline. Verification replaces both scoring and severity promotion — a location that multiple agents flagged simply has multiple independent evidence trails, which the verifier considers when weighing each finding; there is no mechanical "severity +1 bump".

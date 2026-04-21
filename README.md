@@ -34,7 +34,7 @@ npx skills add YuArtian/cr-homie
 
 ### Architecture
 
-```
+```text
 Phase 1: Preflight (orchestrator)
     ├─→ Smart scope detection (branch-aware — branch diff on feature branch, unstaged/staged on main)
     ├─→ Two-pass mode if diff > 2000 lines or > 15 files
@@ -89,7 +89,7 @@ Phase 3: Aggregation (orchestrator)
 
 | Parameter | Description | Default |
 | --------- | ----------- | ------- |
-| `<scope>` | `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or file path | branch-aware smart detection |
+| `<scope>` | `staged`, `commit:<hash>`, `pr:<number>` (requires [`gh` CLI](https://cli.github.com/)), `branch:<name>` (compared against detected default branch), `project[:<path>]`, or file path | branch-aware smart detection |
 | `--focus <area>` | `security`, `quality` (includes `performance` and `api` aliases), `solid`, `testing`, `frontend`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
 | `--quick` | P0/P1 only; skip SOLID and frontend | off |
@@ -174,7 +174,7 @@ Shared meta-rules inherited by every reviewer live in [agents/_base-reviewer.md]
 
 ## Structure
 
-```
+```text
 cr-homie/
 ├── SKILL.md                             # 3-phase orchestration workflow
 ├── agents/
