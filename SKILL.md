@@ -11,7 +11,7 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 
 | Argument | Description |
 | -------- | ----------- |
-| `<scope>` | What to review (default: smart detection of unstaged → staged → branch). Accepts: `staged`, `commit:<hash>`, `pr:<number>`, `branch:<name>`, `project[:<path>]`, or a file path |
+| `<scope>` | What to review (default: branch-aware smart detection — see Phase 1). Accepts: `unstaged`, `staged`, `commit:<hash>`, `pr:<number>` (requires `gh` CLI), `branch:<name>`, `project[:<path>]`, or a file path |
 | `--focus <area>` | Focus area: `security`, `solid`, `testing`, `quality` (includes `performance` and `api` aliases), `frontend`, `all` (default: `all`) |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` (default: `P3`) |
 | `--quick` | Quick scan — only P0/P1, skip SOLID and frontend analysis |
@@ -80,7 +80,7 @@ Before any scope work, gather these facts about the repo:
 - **Default branch** (`$DEFAULT_BRANCH`):
   1. Try `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix
   2. If that fails (no origin remote / never fetched), probe locally: `main`, `master`, `develop`, `trunk` — use the first that `git rev-parse --verify` accepts
-  3. Still nothing → record `$DEFAULT_BRANCH = null` and skip all branch-vs-default comparisons in Smart Detection; ask user to pass an explicit scope (`commit:<hash>` or `branch:<name>` or `staged` / `unstaged`)
+  3. Still nothing → record `$DEFAULT_BRANCH = null` and skip all branch-vs-default comparisons in Smart Detection. When null, `branch:<name>` scope also cannot resolve — ask user to pass one of: `commit:<hash>`, `staged`, `unstaged`, `file path`, or `project[:<path>]`.
 - **Current branch** (`$CURRENT_BRANCH`): `git symbolic-ref --short -q HEAD`. If it fails (detached HEAD — on a tag or commit), record `$CURRENT_BRANCH = null`. In this state, Smart Detection falls back to unstaged → staged only; branch-vs-default is skipped.
 - **`gh` CLI availability**: `command -v gh`. Record as `$HAS_GH = true/false`. Used to gate `pr:<number>` scope.
 
@@ -89,6 +89,7 @@ Before any scope work, gather these facts about the repo:
 | Input | Command | Prerequisite |
 | ----- | ------- | ------------ |
 | _(default)_ | **Smart detection** (see below) | — |
+| `unstaged` | `git diff` | — |
 | `staged` | `git diff --cached` | — |
 | `commit:<hash>` | `git show <hash>` | hash must exist |
 | `pr:<number>` | `gh pr diff <number>` | `$HAS_GH = true`; if false, error with install hint: `brew install gh` or `https://cli.github.com/` |
@@ -387,7 +388,7 @@ Final report template (after Step 5 transforms are applied):
 ## Code Review Summary
 
 **Scope**: [what was reviewed]
-**Files reviewed**: X files, Y lines changed
+**Files reviewed**: X files, Y lines (changed for diff scope; total for project scope)
 **Primary language(s)**: [detected]
 **Agents launched**: [list of agents that ran; mark failed agents as `name (failed)`]
 **Overall assessment**: [APPROVE / REQUEST_CHANGES / COMMENT]
@@ -402,15 +403,16 @@ Final report template (after Step 5 transforms are applied):
 ### P1 - High
 1. **[src/auth/login.ts:42](src/auth/login.ts#L42)** SQL injection via username `[SEC-001]`
    - **Risk**: What goes wrong and how likely
-   - **Fix**: Specific code change or approach
+   - **Attack path**: POST /api/login → Express JSON body → login(req.body.username) → raw SQL concat at line 42
+   - **Confidence**: Confirmed exploitable
+   - **Fix**: Use parameterized query: `db.query('SELECT * FROM users WHERE name = ?', [username])`
    - **Verified**: <agent evidence>; verifier: <verifier evidence from Step 3>
 
-> **Security findings** claiming external exploitability MUST include:
->
-> - **Attack path**: Entry point → framework/middleware handling → vulnerable code
-> - **Confidence**: `Confirmed exploitable` / `Defense-in-depth gap` / `Needs verification`
+> **Security findings** claiming external exploitability MUST include the `Attack path` and `Confidence` lines shown above.
 >
 > **Quality sub-domain findings** keep their sub-prefix: `QUAL-API-NNN` (breaking change — include `Consumers affected`), `QUAL-REM-NNN` (removal — include `Classification: Safe Delete | Defer with Plan`).
+>
+> **Non-security findings** (QUAL / SOLID / TEST / FE) use just `Risk` / `Fix` / `Verified`.
 
 ### P2 - Medium
 2. (continue numbering across sections)
