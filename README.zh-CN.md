@@ -36,7 +36,7 @@ npx skills add YuArtian/cr-homie
 
 ```text
 Phase 1: 预检（编排器）
-    ├─→ 智能 scope 探测（感知当前分支 —— 在 feature 分支默认走 branch diff；在 main 回退到 unstaged/staged）
+    ├─→ 智能 scope 探测（感知当前分支 —— 在 feature 分支默认走 branch diff；在默认分支回退到 unstaged/staged）
     ├─→ 大 diff（>2000 行或 >15 文件）走 two-pass
     ├─→ 探测语言、前端、API 表面、死代码、linter 配置、包管理器
     └─→ 组装 Preflight Context Block
@@ -60,7 +60,7 @@ Phase 3: 聚合（编排器）
 
 ### 工作流
 
-1. **Phase 1 — 预检** ⛔ — 三路信号（unstaged / staged / branch-vs-main）并行采集，再按当前分支决定默认 scope：在 `main` 上回退到未提交改动；在 feature 分支上以 branch diff 为默认（避免 2 行未保存改动遮蔽一条 20 个 commit 的分支工作）。多个信号都有内容时会展示一页摘要让你覆盖。检测语言、前端、API 表面、死代码、linter 配置（ESLint/tsc/Prettier/Ruff/golangci-lint 等 —— 决定 HIGH SIGNAL linter-catchable 过滤是否生效）、包管理器一致性。大 diff 走 two-pass（Pass 1 识别热点，Pass 2 传递过滤后上下文给 agent）。`project` 模式有硬限制（300 文件 / 50k 行软警告；1k 文件 / 150k 行硬门槛，超出会强制你缩小范围或切到 hotspot-only 模式）。
+1. **Phase 1 — 预检** ⛔ — 先做 repo 探测（通过 `git symbolic-ref refs/remotes/origin/HEAD` 自动识别默认分支，fallback 依次探测 `main` / `master` / `develop` / `trunk`；detached HEAD 和无 remote 的仓库优雅降级）。再并行采集适用的 scope 信号（unstaged / staged / branch-vs-default），按当前分支决定默认 scope：在默认分支上回退到未提交改动；在 feature 分支上以 branch diff 为默认（避免 2 行未保存改动遮蔽一条 20 个 commit 的分支工作）。多个信号都有内容时会展示一页摘要让你覆盖。检测语言、前端、API 表面、死代码、linter 配置（ESLint/tsc/Prettier/Ruff/golangci-lint 等 —— 决定 HIGH SIGNAL linter-catchable 过滤是否生效）、包管理器一致性。大 diff 走 two-pass（Pass 1 由 orchestrator 内联执行识别热点，不派独立 agent；Pass 2 把过滤后切片传给 Phase 2 agent，verifier 始终收完整 diff）。`project` 模式有硬限制（300 文件 / 50k 行软警告；1k 文件 / 150k 行硬门槛，超出会强制你缩小范围或切到 hotspot-only 模式）。
 
 2. **Phase 2 — 并行 agent** — security 和 testing 始终运行；quality 默认运行（除非 focus 排除）；solid 默认运行（除非 --quick）；frontend、page-verifier 条件激活。所有 agent 继承 `agents/_base-reviewer.md` 的共享规则。每条发现报告前必须带 `Verified:` 字段，说明核查了哪些调用方、测试、框架行为。
 
@@ -72,10 +72,11 @@ Phase 3: 聚合（编排器）
 
 ```bash
 /cr-homie                        # 基于当前分支的智能 scope 探测
+/cr-homie unstaged               # 显式审查未暂存改动
 /cr-homie staged                 # 审查 staged 改动
 /cr-homie commit:abc123          # 审查指定 commit
-/cr-homie pr:42                  # 审查指定 PR
-/cr-homie branch:feat/login      # 审查指定分支 vs main
+/cr-homie pr:42                  # 审查指定 PR（需要 gh CLI）
+/cr-homie branch:feat/login      # 审查指定分支 vs 探测到的默认分支
 /cr-homie project                # 全项目扫描（受硬限制约束）
 /cr-homie project:src/           # 仅扫描 src/ 目录
 /cr-homie --focus security       # 只聚焦安全
@@ -89,12 +90,19 @@ Phase 3: 聚合（编排器）
 
 | 参数 | 说明 | 默认值 |
 | ---- | ---- | ------ |
-| `<scope>` | `staged`、`commit:<hash>`、`pr:<number>`（需要 [`gh` CLI](https://cli.github.com/)）、`branch:<name>`（与探测到的默认分支对比）、`project[:<path>]` 或文件路径 | 基于分支的智能探测 |
+| `<scope>` | `unstaged`、`staged`、`commit:<hash>`、`pr:<number>`（需要 [`gh` CLI](https://cli.github.com/)）、`branch:<name>`（与探测到的默认分支对比）、`project[:<path>]` 或文件路径 | 基于分支的智能探测 |
 | `--focus <area>` | `security`、`quality`（含 `performance` 和 `api` 别名）、`solid`、`testing`、`frontend`、`all` | `all` |
 | `--min-severity <level>` | 最低报告严重级：`P0`、`P1`、`P2`、`P3` | `P3` |
 | `--quick` | 只报 P0/P1，跳过 SOLID 和前端 | off |
 | `--verify` | 启用运行时页面验证（需要 `--url` 和 Chrome DevTools MCP） | off |
 | `--url <url>` | 页面验证的开发服务器 URL | — |
+
+### 仓库要求
+
+- **Git 仓库，任意默认分支** —— cr-homie 自动识别 `main` / `master` / `develop` / `trunk`（或任何 `origin/HEAD` 指向的分支）。无硬编码分支名
+- **Detached HEAD 与无 remote 仓库** —— 优雅降级：跳过 branch-vs-default 比较，回退到 `unstaged → staged`，或要求你指定显式 scope
+- **`gh` CLI** —— 只在使用 `pr:<number>` 时需要。从 [cli.github.com](https://cli.github.com/) 安装
+- **Chrome DevTools MCP 服务** —— 只在使用 `--verify` 时需要。`claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest` 安装；未连接时 `page-verifier` fail-fast 打印 skip 提示，其他 reviewer 照常运行
 
 ## 输出示例
 

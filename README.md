@@ -36,7 +36,7 @@ npx skills add YuArtian/cr-homie
 
 ```text
 Phase 1: Preflight (orchestrator)
-    ├─→ Smart scope detection (branch-aware — branch diff on feature branch, unstaged/staged on main)
+    ├─→ Smart scope detection (branch-aware — branch diff on feature branch, unstaged/staged on default branch)
     ├─→ Two-pass mode if diff > 2000 lines or > 15 files
     ├─→ Detect languages, frontend, API surface, dead code, linter configs, package manager
     └─→ Build Preflight Context Block
@@ -60,7 +60,7 @@ Phase 3: Aggregation (orchestrator)
 
 ### Workflow
 
-1. **Phase 1: Preflight** ⛔ — Runs all three scope signals (unstaged, staged, branch-vs-main) in parallel and picks based on current branch: on `main` it falls back to uncommitted work; on a feature branch the branch diff is the default (so a tiny unstaged edit cannot mask a 20-commit branch). When multiple signals have content, shows a one-screen summary and lets you override before committing to a scope. Detects languages, frontend files, API surface, dead code signals, linter configs (ESLint/tsc/Prettier/Ruff/golangci-lint/etc. — controls HIGH SIGNAL linter-catchable filter), package manager consistency. If diff > 2000 lines OR > 15 files → two-pass mode (Pass 1 hotspot detection, Pass 2 filtered context to agents). For `project` scope, enforces hard limits (300 files / 50k lines soft warn; 1k files / 150k lines hard gate that forces you to narrow or switch to hotspot-only mode).
+1. **Phase 1: Preflight** ⛔ — First probes the repo (auto-detects the default branch via `git symbolic-ref refs/remotes/origin/HEAD` with fallback probes for `main` / `master` / `develop` / `trunk`; gracefully handles detached HEAD and repos without a remote). Then gathers the applicable scope signals (unstaged, staged, branch-vs-default) in parallel and picks based on current branch: on the default branch it falls back to uncommitted work; on a feature branch the branch diff is the default (so a tiny unstaged edit cannot mask a 20-commit branch). When multiple signals have content, shows a one-screen summary and lets you override before committing to a scope. Detects languages, frontend files, API surface, dead code signals, linter configs (ESLint/tsc/Prettier/Ruff/golangci-lint/etc. — controls HIGH SIGNAL linter-catchable filter), package manager consistency. If diff > 2000 lines OR > 15 files → two-pass mode (Pass 1 hotspot detection is orchestrator-inline, no separate agent; Pass 2 delivers hotspot-filtered context to agents while the verifier always gets the full diff). For `project` scope, enforces hard limits (300 files / 50k lines soft warn; 1k files / 150k lines hard gate that forces you to narrow or switch to hotspot-only mode).
 
 2. **Phase 2: Parallel agents** — 2 always run (security, testing) + quality (unless focus excludes) + solid (unless --quick) + frontend and page-verifier conditionally. All inherit shared rules from `agents/_base-reviewer.md`. Each agent must attach a `Verified:` line showing which callers / tests / framework behavior it checked before reporting.
 
@@ -71,11 +71,12 @@ Phase 3: Aggregation (orchestrator)
 ## Usage
 
 ```bash
-/cr-homie                        # Smart scope detection based on current branch
+/cr-homie                        # Branch-aware smart scope detection
+/cr-homie unstaged               # Review unstaged changes explicitly
 /cr-homie staged                 # Review staged changes
 /cr-homie commit:abc123          # Review a specific commit
-/cr-homie pr:42                  # Review a PR
-/cr-homie branch:feat/login      # Review a named branch vs main
+/cr-homie pr:42                  # Review a PR (requires gh CLI)
+/cr-homie branch:feat/login      # Review a named branch vs the detected default branch
 /cr-homie project                # Full project scan (subject to hard limits)
 /cr-homie project:src/           # Scan only src/ directory
 /cr-homie --focus security       # Focus on security only
@@ -89,12 +90,19 @@ Phase 3: Aggregation (orchestrator)
 
 | Parameter | Description | Default |
 | --------- | ----------- | ------- |
-| `<scope>` | `staged`, `commit:<hash>`, `pr:<number>` (requires [`gh` CLI](https://cli.github.com/)), `branch:<name>` (compared against detected default branch), `project[:<path>]`, or file path | branch-aware smart detection |
+| `<scope>` | `unstaged`, `staged`, `commit:<hash>`, `pr:<number>` (requires [`gh` CLI](https://cli.github.com/)), `branch:<name>` (compared against the detected default branch), `project[:<path>]`, or file path | branch-aware smart detection |
 | `--focus <area>` | `security`, `quality` (includes `performance` and `api` aliases), `solid`, `testing`, `frontend`, `all` | `all` |
 | `--min-severity <level>` | Minimum severity to report: `P0`, `P1`, `P2`, `P3` | `P3` |
 | `--quick` | P0/P1 only; skip SOLID and frontend | off |
 | `--verify` | Enable runtime page verification (requires `--url` and Chrome DevTools MCP) | off |
 | `--url <url>` | Dev server URL for page verification | — |
+
+### Repository requirements
+
+- **Git repo with any default branch** — cr-homie auto-detects `main` / `master` / `develop` / `trunk` (or whatever `origin/HEAD` points to). No hardcoded branch name.
+- **Detached HEAD and no-remote repos** — handled gracefully; branch-vs-default comparisons are skipped, and cr-homie falls back to `unstaged → staged` or asks for an explicit scope.
+- **`gh` CLI** — only required when you use `pr:<number>`. Install from [cli.github.com](https://cli.github.com/) if needed.
+- **Chrome DevTools MCP server** — only required when you use `--verify`. Install with `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest`; if missing, `page-verifier` fails fast with a skip notice and the rest of the review still runs.
 
 ## Output example
 
