@@ -1,6 +1,6 @@
 ---
 name: cr-homie
-description: "Expert code review of git changes with a senior engineer lens. Detects SOLID violations, security risks, race conditions, performance issues, testing gaps, API breaking changes, and proposes actionable improvements. Use when user wants to review code, check code quality, find bugs, security audit, PR review. Triggers: 'review my changes', 'check this code', 'code review', 'find issues', 'is this safe to merge', 'review PR', 'look at my diff', 'what is wrong with this code', 'review this commit', 'check for security issues', 'code quality check'."
+description: "Heavyweight multi-agent code review: parallel security / testing / quality+API / SOLID / frontend reviewers plus an evidence-based finding-verifier, with P0–P3 merge-blocking severity and an optional runtime page check. Costs roughly 8x a standard single-pass review, so use it ONLY when the user explicitly asks for cr-homie (e.g. 'cr-homie', '/cr-homie', 'run cr-homie', '用 cr-homie 审'), or explicitly asks for a deep / full multi-dimension review of a large or risky change (data writes, privacy/security, cross-client API contracts). For ordinary requests like 'review my changes', 'code review' or 'check this diff', do NOT use this skill — use the host's built-in code review instead."
 ---
 
 # Code Review Master
