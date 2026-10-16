@@ -11,6 +11,8 @@ evals/run.sh --case pub-sqli-search --runs 1 --ablation none --keep-temp
 evals/run.sh --runs 3 --ablation none --json evals/results/baseline.json
 ```
 
+**macOS prerequisite:** reviewers run `git` inside Claude Code's Bash sandbox, and `/usr/bin/git` (an xcrun shim) fails there. Eval runs take `PATH` from your login shell, so a real git must resolve before `/usr/bin` in it — e.g. `brew install git`. `run.sh` warns when it doesn't.
+
 `--ablation none` skips the no-plugin arm: cr-homie only runs when named, so that arm would not review anything. Compare against the built-in `/code-review` with a separate suite instead.
 
 ## Case layout
