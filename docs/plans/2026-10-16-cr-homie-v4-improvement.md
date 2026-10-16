@@ -276,3 +276,15 @@ W2、W3、W4 都要改 SKILL.md，所以开发可以并行，但合并要串行�
 - 新发现（影响后续任务）：
   - plugin 安装后 skill 名是 `cr-homie:cr-homie`。本机同时装有全局 skill `cr-homie` 时两者并存；eval 用例的 prompt 应写 `/cr-homie:cr-homie`，避免误触发全局那份。→ W0.1
   - 注册成 plugin agent 后，子 agent 的工作目录是被审查的仓库，agent 正文里「读 `references/...`」这类相对路径找不到插件里的文件。公共规则与 checklist 必须由编排者读取后放进启动 prompt。→ W1 第 3 步（基线报告需注明这一点）
+
+### W0.3 + 第一个公开用例（2026-10-16）
+
+- SKILL.md 新增 `--format json` / `--out` 与 Phase 3 Step 5b 的 JSON 报告格式（含 `refuted`，供陷阱用例判定）；新增 `evals/run.sh`（强制 `--no-publish` + `CLAUDE_CODE_DISABLE_ARTIFACT=1`）、`evals/README.md`、用例 `evals/pub-sqli-search`。
+- 冒烟一次（`--runs 1 --ablation none`）：$1.48 / 280 秒 / 主会话 13 轮，32 行 diff。
+  - 合法 JSON 写出，`version` 读到 3.1.1。
+  - SQL 注入报为 P0（`users.js:10`）；`ORDER BY` 白名单陷阱没被报。
+  - 编排者**自行**用 `cr-homie:{security,testing,quality,solid}-reviewer` 与 `cr-homie:finding-verifier` 派发子 agent，说明 W0.0 注册的 agent 在真实运行中被用上了。
+- 修正：`tool_used: Skill` grader 永远不过，因为 prompt 里的斜杠命令直接展开 skill、不经 Skill 工具；改为 `tool_used: Agent` 匹配 `subagent_type`。
+- 观察：
+  - 沙箱里 git 打印 xcrun 缓存写入失败（`Operation not permitted`），diff 照常取到，暂不处理。
+  - 单次成本与 diff 规模强相关：合成小用例约 $1.5，2026-10-13 的真实 MR 约 $10。

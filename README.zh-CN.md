@@ -106,6 +106,8 @@ Phase 3: 聚合（编排器）
 | `--quick` | 只报 P0/P1，跳过 SOLID 和前端 | off |
 | `--verify` | 启用运行时页面验证（需要 `--url` 和 Chrome DevTools MCP） | off |
 | `--url <url>` | 页面验证的开发服务器 URL | — |
+| `--format <fmt>` | `markdown` 或 `json`；`json` 会额外写出机器可读的报告（含保留的与被推翻的发现），供评测和自动化使用 | `markdown` |
+| `--out <path>` | `--format json` 的输出文件 | `cr-homie-review.json` |
 
 ### 仓库要求
 

@@ -106,6 +106,8 @@ Phase 3: Aggregation (orchestrator)
 | `--quick` | P0/P1 only; skip SOLID and frontend | off |
 | `--verify` | Enable runtime page verification (requires `--url` and Chrome DevTools MCP) | off |
 | `--url <url>` | Dev server URL for page verification | — |
+| `--format <fmt>` | `markdown` or `json` — `json` also writes a machine-readable report (findings + refuted findings) for evals / automation | `markdown` |
+| `--out <path>` | Output file for `--format json` | `cr-homie-review.json` |
 
 ### Repository requirements
 

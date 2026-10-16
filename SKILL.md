@@ -17,6 +17,8 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 | `--quick` | Quick scan — only P0/P1, skip SOLID and frontend analysis |
 | `--verify` | Enable page-level verification via Chrome DevTools MCP (requires `--url` and MCP server) |
 | `--url <url>` | Dev server URL for page verification (e.g., `http://localhost:3000`) |
+| `--format <fmt>` | `markdown` (default) or `json`. `json` additionally writes the machine-readable report described in Phase 3 Step 5b (used by evals and automation) |
+| `--out <path>` | Where `--format json` writes its file (default: `cr-homie-review.json` in the current working directory) |
 
 ## Severity Levels
 
@@ -434,6 +436,60 @@ Final report template (after Step 5 transforms are applied):
 ```
 
 **Clean review**: If no issues found across all agents, explicitly state what was checked by each agent and any residual risks.
+
+#### Step 5b: JSON Report (only with `--format json`)
+
+In addition to the markdown report above, write ONE JSON file to `--out` (default `cr-homie-review.json` in the current working directory) using the Write tool. It must be valid JSON matching this shape exactly — no extra top-level keys, no comments:
+
+```json
+{
+  "schema_version": 1,
+  "tool": "cr-homie",
+  "version": "<version from .claude-plugin/plugin.json in this skill's base directory, or \"unknown\">",
+  "scope": "<same text as the markdown Scope line>",
+  "files_reviewed": 0,
+  "lines_changed": 0,
+  "agents_launched": ["security-reviewer"],
+  "agents_failed": [],
+  "overall_assessment": "APPROVE | REQUEST_CHANGES | COMMENT",
+  "findings": [
+    {
+      "id": "SEC-001",
+      "severity": "P0 | P1 | P2 | P3",
+      "original_severity": "<severity before verification, same as severity if unchanged>",
+      "file": "src/auth/login.ts",
+      "line": 42,
+      "end_line": null,
+      "title": "SQL injection via username",
+      "risk": "...",
+      "fix": "...",
+      "verified": "<the merged Verified field>",
+      "verifier_outcome": "CONFIRMED | DOWNGRADED | NEEDS-MANUAL-REVIEW",
+      "tags": ["defense-in-depth gap"],
+      "attack_path": null,
+      "confidence": null
+    }
+  ],
+  "refuted": [
+    {
+      "id": "SEC-003",
+      "severity": "<original severity>",
+      "file": "services/file.py",
+      "line": 42,
+      "title": "...",
+      "evidence": "<verifier evidence for the refutation>"
+    }
+  ],
+  "not_covered": ["..."]
+}
+```
+
+Rules:
+
+- `findings` = exactly the findings in the final markdown report (after `--min-severity` and the HIGH SIGNAL sweep), same IDs and order. `file` is the repo-relative path (plain, not a markdown link); `line` is an integer (first line of a range; put the last line in `end_line`).
+- `refuted` = every finding the verifier REFUTED and the orchestrator dropped in Phase 3 Step 3. Findings dropped only by `--min-severity` are NOT listed.
+- `attack_path` / `confidence` carry the security fields as strings when present, else `null`.
+- Write the file before Step 6, and mention its path in one line at the end of the markdown report.
 
 #### Step 6: Next Steps Confirmation ⚠️ REQUIRED
 
