@@ -23,15 +23,14 @@ cd "$(dirname "$0")/.."
 
 export CLAUDE_CODE_DISABLE_ARTIFACT=1
 
-# macOS: /usr/bin/git is an xcrun shim that fails inside Claude Code's Bash
-# sandbox, and eval runs take PATH from your login shell (not from this
-# script), so a real git must come before /usr/bin there. See evals/README.md.
+# macOS: /usr/bin/git is an xcrun shim. Inside Claude Code's Bash sandbox it
+# can only work by handing off to another git on PATH (it prints xcrun cache
+# errors on stderr, then runs that git); with no other git the reviewers
+# cannot run git at all. See evals/README.md.
 if [[ "$(uname)" == Darwin ]]; then
-  login_git="$("$SHELL" -lc 'command -v git' 2>/dev/null || true)"
-  if [[ "$login_git" == /usr/bin/git ]]; then
-    echo "warning: your login shell resolves git to the /usr/bin/git xcrun shim, which" >&2
-    echo "         fails inside the eval sandbox; reviewers will not be able to run git." >&2
-    echo "         Install a real git ahead of /usr/bin (e.g. brew install git)." >&2
+  if ! type -a -p git 2>/dev/null | grep -qv '^/usr/bin/git$'; then
+    echo "warning: the only git on PATH is the /usr/bin/git xcrun shim, which fails" >&2
+    echo "         inside the eval sandbox. Install a real git (e.g. brew install git)." >&2
   fi
 fi
 

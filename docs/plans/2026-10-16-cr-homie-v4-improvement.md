@@ -304,6 +304,6 @@ W2、W3、W4 都要改 SKILL.md，所以开发可以并行，但合并要串行�
 - 私有流程冒烟（S11，各 1 次）：两组都报出了标注的越权 bug。cr-homie $2.95 / 378 秒；`/code-review high` $0.90 / 178 秒。内置审查在评测沙箱里可用。
 - **阻塞基线的问题：沙箱里 git 不可用。**
   - 表现：macOS 的 `/usr/bin/git` 是 xcrun 转发程序，在 Bash 沙箱里写不了缓存，直接失败。两组审查都退化为读 `.git/objects`、用 zlib 自己还原 diff。以上所有冒烟结果都是在这种状态下得到的，只能证明流水线能走通，不能当基线数据。
-  - 在 `run.sh` 里改 PATH 无效：评测子进程取的是登录 shell 的 PATH。
-  - 处理：前提条件写进 `evals/README.md`，`run.sh` 检测到时给出警告。修复需要在登录 shell 的 PATH 上、`/usr/bin` 之前提供真正的 git（如 `brew install git`），等确认后执行。
+  - 解决（2026-10-16，经确认后执行 `brew install git`，并补 `init.defaultBranch main`）：沙箱里的 zsh 读不到 Homebrew `Cellar` 链接目标的元数据，仍然把 `git` 解析到 `/usr/bin/git`；但这个转发程序会接着调用 PATH 上的 Homebrew git。复测中 `git diff` / `git log` 返回了真实输出，只在 stderr 多出两行 xcrun 报错。调试用例确认了子进程的 PATH 取自当前进程环境，而不是登录 shell。
+  - `run.sh` 改为：PATH 上只有 `/usr/bin/git` 时才警告；前提条件写进 `evals/README.md`。
 - 另修：`mkrepo.sh` 关闭 `gc.auto` 与 `maintenance.auto`。对照组的 fixture 多了几步 git 操作，会触发后台 gc，在 harness 做工作区快照时改动 `.git`，导致该次运行直接报错。
