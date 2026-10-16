@@ -1,0 +1,15 @@
+{
+  "name": "cr-homie",
+  "description": "CR Homie — evidence-based multi-agent code review for Claude Code.",
+  "owner": {
+    "name": "YuArtian",
+    "url": "https://github.com/YuArtian"
+  },
+  "plugins": [
+    {
+      "name": "cr-homie",
+      "source": "./",
+      "description": "Evidence-based multi-agent code review with an independent finding-verifier."
+    }
+  ]
+}

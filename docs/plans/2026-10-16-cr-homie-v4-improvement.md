@@ -266,4 +266,13 @@ W2、W3、W4 都要改 SKILL.md，所以开发可以并行，但合并要串行�
 
 ## 8. 实际结果
 
-（实施完成后补充）
+### W0.0（2026-10-16，分支 `feat/eval-harness`）
+
+- 新增 `.claude-plugin/plugin.json`（version 3.1.1）与 `marketplace.json`（`source: "./"`）；`agents/_base-reviewer.md` 移到 `references/base-reviewer-rules.md`，SKILL.md / README / 各 agent 的路径引用同步更新；新增 `.gitignore`（`evals-private/`、`evals/results/`）。
+- 验证：
+  - `claude plugin validate .` 与 `claude plugin validate .claude-plugin/plugin.json` 均通过（无警告）。
+  - `claude -p --plugin-dir .` 列出的子 agent 恰好是 7 个：`cr-homie:{security,quality,solid,testing,frontend}-reviewer`、`cr-homie:page-verifier`、`cr-homie:finding-verifier`，没有 `_base-reviewer`。
+  - `npx skills add . --list` 仍只识别出 1 个 skill `cr-homie`，纯 skill 安装方式不受影响。
+- 新发现（影响后续任务）：
+  - plugin 安装后 skill 名是 `cr-homie:cr-homie`。本机同时装有全局 skill `cr-homie` 时两者并存；eval 用例的 prompt 应写 `/cr-homie:cr-homie`，避免误触发全局那份。→ W0.1
+  - 注册成 plugin agent 后，子 agent 的工作目录是被审查的仓库，agent 正文里「读 `references/...`」这类相对路径找不到插件里的文件。公共规则与 checklist 必须由编排者读取后放进启动 prompt。→ W1 第 3 步（基线报告需注明这一点）

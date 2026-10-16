@@ -4,6 +4,16 @@
 
 ## 安装
 
+**Claude Code（推荐）** — 以插件方式安装，各 reviewer 会注册成真正的子 agent（`cr-homie:security-reviewer` 等），frontmatter 里的 `model` / `tools` 才会生效：
+
+```bash
+/plugin install cr-homie --marketplace YuArtian/cr-homie
+```
+
+Claude Code 低于 2.1.275 时，先执行 `/plugin marketplace add YuArtian/cr-homie`，再执行 `/plugin install cr-homie@cr-homie`。
+
+**其他 agent / 纯 skill 方式：**
+
 ```bash
 npx skills add YuArtian/cr-homie
 ```
@@ -28,7 +38,7 @@ npx skills add YuArtian/cr-homie
 - **HIGH SIGNAL（只报高信号）** — 9 类发现静默丢弃（linter 能抓的、预存问题、看起来像 bug 但实际正确的、琐碎 nitpick、投机性重构、已有测试的、泛泛建议、跨 agent 重复、假想的未来需求）。
 - **Iron Law（铁律）** — 每条发现必须给出精确的 `file:line`、具体风险场景、具体修复方案。不允许"考虑改进错误处理"这种泛泛建议。
 - **Review-first** — 技能只产出发现，必须经过你确认才会实施修复。
-- **共享元规则** — Iron Law、HIGH SIGNAL 过滤、Severity 校准、Verify Before Reporting、Anti-Patterns 集中在 [agents/_base-reviewer.md](agents/_base-reviewer.md)，每个 reviewer 继承，规则不会在 agent 间漂移。
+- **共享元规则** — Iron Law、HIGH SIGNAL 过滤、Severity 校准、Verify Before Reporting、Anti-Patterns 集中在 [references/base-reviewer-rules.md](references/base-reviewer-rules.md)，每个 reviewer 继承，规则不会在 agent 间漂移。
 - **多 Agent 并行** — 领域 reviewer 并发处理同一份 Preflight Context Block，降低 token 压力、提高覆盖。
 - **按需激活** — 前端、页面验证，以及 quality reviewer 的 API 子域和死代码子域，只有在 Preflight 检测到相关信号时才启用。
 
@@ -62,7 +72,7 @@ Phase 3: 聚合（编排器）
 
 1. **Phase 1 — 预检** ⛔ — 先做 repo 探测（通过 `git symbolic-ref refs/remotes/origin/HEAD` 自动识别默认分支，fallback 依次探测 `main` / `master` / `develop` / `trunk`；detached HEAD 和无 remote 的仓库优雅降级）。再并行采集适用的 scope 信号（unstaged / staged / branch-vs-default），按当前分支决定默认 scope：在默认分支上回退到未提交改动；在 feature 分支上以 branch diff 为默认（避免 2 行未保存改动遮蔽一条 20 个 commit 的分支工作）。多个信号都有内容时会展示一页摘要让你覆盖。检测语言、前端、API 表面、死代码、linter 配置（ESLint/tsc/Prettier/Ruff/golangci-lint 等 —— 决定 HIGH SIGNAL linter-catchable 过滤是否生效）、包管理器一致性。大 diff 走 two-pass（Pass 1 由 orchestrator 内联执行识别热点，不派独立 agent；Pass 2 把过滤后切片传给 Phase 2 agent，verifier 始终收完整 diff）。`project` 模式有硬限制（300 文件 / 50k 行软警告；1k 文件 / 150k 行硬门槛，超出会强制你缩小范围或切到 hotspot-only 模式）。
 
-2. **Phase 2 — 并行 agent** — security 和 testing 始终运行；quality 默认运行（除非 focus 排除）；solid 默认运行（除非 --quick）；frontend、page-verifier 条件激活。所有 agent 继承 `agents/_base-reviewer.md` 的共享规则。每条发现报告前必须带 `Verified:` 字段，说明核查了哪些调用方、测试、框架行为。
+2. **Phase 2 — 并行 agent** — security 和 testing 始终运行；quality 默认运行（除非 focus 排除）；solid 默认运行（除非 --quick）；frontend、page-verifier 条件激活。所有 agent 继承 `references/base-reviewer-rules.md` 的共享规则。每条发现报告前必须带 `Verified:` 字段，说明核查了哪些调用方、测试、框架行为。
 
 3. **Phase 3 — 聚合** ⛔ — 跨 agent 去重。`finding-verifier` 拿到**完整原始 diff**（即使 Phase 2 用了 two-pass 过滤切片）加上每条 finding 的上下文，对每条返回四态之一。安全覆盖保护 SEC-P0（REFUTE 需要强且无歧义的证据）、生产假数据、多 agent 共同命中的位置（至少保留一条）。最后 orchestrator 把 agent 的 `Verified:` 和 verifier 的 `Evidence:` 合并为单字段、把 `file:line` 转成 IDE 可点击的 markdown 链接、应用 `--min-severity`、跑一遍 HIGH SIGNAL 终检，然后询问你下一步。
 
@@ -164,7 +174,7 @@ Phase 3: 聚合（编排器）
 | **P2** | 本 PR 内修复或建 follow-up —— 纵深防御缺口、代码坏味道、缺失边界测试 |
 | **P3** | 可选 —— 风格、命名、微优化 |
 
-完整校准规则与示例：[agents/_base-reviewer.md](agents/_base-reviewer.md)。
+完整校准规则与示例：[references/base-reviewer-rules.md](references/base-reviewer-rules.md)。
 
 ## Review Agent 列表
 
@@ -178,16 +188,18 @@ Phase 3: 聚合（编排器）
 | `page-verifier` | 通过 Chrome DevTools MCP 做运行时页面验证 | inherit | `--verify` + `--url` + MCP 可达 |
 | `finding-verifier` | 基于证据的发现验证（取代 confidence scoring） | inherit | Phase 3 始终运行 |
 
-各 reviewer 的共享元规则在 [agents/_base-reviewer.md](agents/_base-reviewer.md)。
+各 reviewer 的共享元规则在 [references/base-reviewer-rules.md](references/base-reviewer-rules.md)。
 
 ## 目录结构
 
 ```text
 cr-homie/
+├── .claude-plugin/
+│   ├── plugin.json                      # Claude Code 插件清单（把 agents/ 注册为 cr-homie:<agent>）
+│   └── marketplace.json                 # 单插件 marketplace，供 /plugin install 使用
 ├── SKILL.md                             # 三阶段编排工作流
 ├── agents/
 │   ├── agent.yaml                       # 技能接口元数据
-│   ├── _base-reviewer.md                # 共享元规则（Iron Law、HIGH SIGNAL、Severity、Verify、Anti-Patterns、输出格式）
 │   ├── security-reviewer.md             # 安全 + 可靠性 + 包管理器一致性
 │   ├── quality-reviewer.md              # 运行时质量 + API 契约 + 死代码移除
 │   ├── solid-reviewer.md                # SOLID + 架构坏味道
@@ -196,6 +208,7 @@ cr-homie/
 │   ├── page-verifier.md                 # 运行时页面验证（条件激活）
 │   └── finding-verifier.md              # Phase 3 证据验证 agent
 └── references/                          # 知识库（各 agent 按需加载）
+    ├── base-reviewer-rules.md           # 共享元规则（Iron Law、HIGH SIGNAL、Severity、Verify、Anti-Patterns、输出格式）
     ├── security-checklist.md            # OWASP 风险、竞态、加密、供应链、攻击链验证流程
     ├── code-quality-checklist.md        # 错误处理、N+1、缓存、边界、可观测性
     ├── api-contract-checklist.md        # Breaking change、向后兼容、版本化

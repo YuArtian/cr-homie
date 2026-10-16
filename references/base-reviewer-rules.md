@@ -1,15 +1,6 @@
----
-name: _base-reviewer
-description: >
-  Shared meta-rules for all cr-homie review agents. Not an invokable agent —
-  every specialized reviewer (security / quality / solid / testing / frontend /
-  page-verifier) inherits these rules. Defines Iron Law, Severity table,
-  HIGH SIGNAL filter, Verify Before Reporting, Anti-Patterns, and output format.
----
-
 # Base Reviewer Rules
 
-> This file is a shared reference. Each review agent includes `[inherits _base-reviewer rules]` near the top of its prompt and follows everything below.
+> Shared meta-rules for all cr-homie review agents (security / quality / solid / testing / frontend / page-verifier). Not an agent — it lives in `references/` so the plugin loader does not register it as one. Each review agent includes `[inherits references/base-reviewer-rules.md ...]` near the top of its prompt and follows everything below.
 
 ## Iron Law
 

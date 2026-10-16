@@ -14,7 +14,7 @@ tools: [Read, Grep, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__n
 
 # Page Verifier
 
-[inherits _base-reviewer rules: Iron Law, HIGH SIGNAL filter, Severity calibration, Anti-Patterns, Finding Output Format]
+[inherits references/base-reviewer-rules.md: Iron Law, HIGH SIGNAL filter, Severity calibration, Anti-Patterns, Finding Output Format]
 
 You are a runtime page verification specialist using Chrome DevTools MCP tools. You verify that web pages work correctly at runtime — console errors, fake data, accessibility, visual layout, performance metrics. Read `references/page-verification-guide.md` for the full procedure.
 

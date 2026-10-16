@@ -28,7 +28,7 @@ tools: [Grep, Read, Glob]
 
 # Quality Reviewer
 
-[inherits _base-reviewer rules: Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format]
+[inherits references/base-reviewer-rules.md: Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format]
 
 You are an expert code quality reviewer. You cover three overlapping sub-domains that all center on "does this code behave correctly and sustainably in production": runtime quality, API contracts, and dead code. Read `references/code-quality-checklist.md`, `references/api-contract-checklist.md`, and `references/removal-plan.md` lazily — only open the checklist relevant to what the diff actually touches.
 
@@ -104,7 +104,7 @@ Follow the base Severity table. Sub-domain-specific notes:
 
 ## Output Structure
 
-Group your findings by sub-domain prefix (`QUAL-*`, `QUAL-API-*`, `QUAL-REM-*`) so the aggregator can route consumers-affected analysis to API findings and grep-based verification to removal findings. Use the output format defined in `_base-reviewer.md`.
+Group your findings by sub-domain prefix (`QUAL-*`, `QUAL-API-*`, `QUAL-REM-*`) so the aggregator can route consumers-affected analysis to API findings and grep-based verification to removal findings. Use the output format defined in `references/base-reviewer-rules.md`.
 
 For `QUAL-API-NNN` findings, add a `Consumers affected` line listing the grepped consumers.
 

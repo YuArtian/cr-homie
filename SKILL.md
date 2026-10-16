@@ -20,7 +20,7 @@ IRON LAW: Every finding MUST cite the exact `file:line`, explain the concrete ri
 
 ## Severity Levels
 
-The authoritative Severity table with calibration rules lives in `agents/_base-reviewer.md` and is inherited by every review agent. User-facing summary:
+The authoritative Severity table with calibration rules lives in `references/base-reviewer-rules.md` and is inherited by every review agent. User-facing summary:
 
 | Level | Name | Must do |
 | ----- | ---- | ------- |
@@ -31,7 +31,7 @@ The authoritative Severity table with calibration rules lives in `agents/_base-r
 
 ## HIGH SIGNAL Philosophy
 
-cr-homie aims for **HIGH SIGNAL findings only**. The shared rule set in `agents/_base-reviewer.md` defines what every review agent MUST silently drop:
+cr-homie aims for **HIGH SIGNAL findings only**. The shared rule set in `references/base-reviewer-rules.md` defines what every review agent MUST silently drop:
 
 - Linter-catchable issues (formatting, unused imports, basic type errors)
 - Pre-existing issues in code NOT touched by the diff (exception: `project` scope)
@@ -43,11 +43,11 @@ cr-homie aims for **HIGH SIGNAL findings only**. The shared rule set in `agents/
 - Duplicates across agents — stay in your lane
 - Hypothetical future requirements
 
-Every agent inherits this filter from `agents/_base-reviewer.md`. The orchestrator (this file) and the `finding-verifier` agent in Phase 3 enforce it again.
+Every agent inherits this filter from `references/base-reviewer-rules.md`. The orchestrator (this file) and the `finding-verifier` agent in Phase 3 enforce it again.
 
 ## Anti-Patterns (DO NOT)
 
-All Anti-Patterns are centralized in `agents/_base-reviewer.md`. The orchestrator-specific additions:
+All Anti-Patterns are centralized in `references/base-reviewer-rules.md`. The orchestrator-specific additions:
 
 - ❌ Start implementing fixes before user confirms (Phase 3 Step 6 gate)
 - ❌ Produce a final report that contains findings without a `Verified:` line — if present, route them through `finding-verifier` before output
@@ -65,7 +65,7 @@ All Anti-Patterns are centralized in `agents/_base-reviewer.md`. The orchestrato
 | `page-verifier` | Runtime page verification via Chrome DevTools MCP | inherit | If `--verify` AND `--url` provided AND MCP available |
 | `finding-verifier` | Evidence-based verification of all findings (replaces confidence scoring) | inherit | Always in Phase 3 |
 
-**Shared rules** for all review agents are in `agents/_base-reviewer.md` (Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format). Each individual agent file contains only its domain-specific signals and calibration.
+**Shared rules** for all review agents are in `references/base-reviewer-rules.md` (Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format). Each individual agent file contains only its domain-specific signals and calibration.
 
 ---
 
@@ -353,7 +353,7 @@ Launch the `finding-verifier` agent with the full merged findings list AND the P
 **Safety overrides (enforced here, not only by the verifier):**
 
 - `SEC-*` with original severity P0 and outcome `CONFIRMED` → never DROP, never downgrade below P1
-- Any finding involving fake data / mock URL / placeholder in a **prod-reachable code path** (see the heuristic in `agents/_base-reviewer.md` → "Prod-Reachable Code Path") → never DROP
+- Any finding involving fake data / mock URL / placeholder in a **prod-reachable code path** (see the heuristic in `references/base-reviewer-rules.md` → "Prod-Reachable Code Path") → never DROP
 - **Consensus lock**: if a `file:line` was flagged by 2+ agents in Step 2, at least ONE finding at that location must survive verification — DOWNGRADE is permitted, REFUTE of all is not. If the verifier tried to REFUTE all, escalate the highest-severity one to `NEEDS-MANUAL-REVIEW` and keep it.
 
 This replaces the prior Haiku-scoring + Adversarial-Consensus pipeline. Verification replaces both scoring and severity promotion — a location that multiple agents flagged simply has multiple independent evidence trails, which the verifier considers when weighing each finding; there is no mechanical "severity +1 bump".
@@ -364,7 +364,7 @@ Before output, verify the surviving findings:
 
 - [ ] Every finding has an exact `file:line` reference (will be converted to markdown link in Step 5)
 - [ ] Every finding carries BOTH an agent `Verified:` line AND a verifier `Evidence:` line going into Step 5 — these get merged into a single `Verified:` field during formatting
-- [ ] Every finding has a justified severity level consistent with the base Severity calibration in `agents/_base-reviewer.md`
+- [ ] Every finding has a justified severity level consistent with the base Severity calibration in `references/base-reviewer-rules.md`
 - [ ] No duplicate findings remain
 - [ ] No vague suggestions without a concrete, implementable fix
 - [ ] Severity not inflated — re-check each P0/P1 against the calibration rules
@@ -372,7 +372,7 @@ Before output, verify the surviving findings:
 - [ ] Agents with "no findings" have their `Not Covered` sections merged into the report
 - [ ] If any agent FAILED to run (timeout, tool error, MCP unreachable), record in `Not Covered`
 - [ ] Apply `--min-severity` filter: drop all findings below the threshold
-- [ ] HIGH SIGNAL pass: re-scan surviving findings against the filter list from `agents/_base-reviewer.md` — drop any that match (linter-catchable, pre-existing, pedantic, speculative, etc.)
+- [ ] HIGH SIGNAL pass: re-scan surviving findings against the filter list from `references/base-reviewer-rules.md` — drop any that match (linter-catchable, pre-existing, pedantic, speculative, etc.)
 
 #### Step 5: Format Output
 
@@ -460,7 +460,7 @@ I found X issues (P0: _, P1: _, P2: _, P3: _).
 
 | File | Purpose | Used By |
 | ---- | ------- | ------- |
-| `agents/_base-reviewer.md` | Shared meta-rules: Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format | ALL review agents (inherited) |
+| `references/base-reviewer-rules.md` | Shared meta-rules: Iron Law, HIGH SIGNAL filter, Verify Before Reporting, Severity calibration, Anti-Patterns, Finding Output Format | ALL review agents (inherited) |
 | `references/security-checklist.md` | Security, reliability, race conditions, package manager consistency, attack-chain verification procedure | security-reviewer |
 | `references/code-quality-checklist.md` | Error handling, performance, boundary conditions, concurrency, observability | quality-reviewer (runtime sub-domain) |
 | `references/api-contract-checklist.md` | Breaking changes, backward compatibility, type safety, versioning | quality-reviewer (API sub-domain) |

@@ -1,0 +1,7 @@
+.DS_Store
+
+# Private eval cases (internal repos, confidential) — never commit or publish.
+evals-private/
+
+# claude plugin eval output
+evals/results/

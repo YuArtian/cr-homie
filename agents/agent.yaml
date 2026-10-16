@@ -5,4 +5,4 @@ interface:
 
 # Agent-agnostic skill — works with any LLM provider supporting multi-agent orchestration.
 # See SKILL.md for the full Phase 1 (Preflight) → Phase 2 (Parallel Reviewers) → Phase 3 (Verification + Aggregation) workflow.
-# See agents/_base-reviewer.md for shared rules (Iron Law, HIGH SIGNAL filter, Severity calibration).
+# See references/base-reviewer-rules.md for shared rules (Iron Law, HIGH SIGNAL filter, Severity calibration).

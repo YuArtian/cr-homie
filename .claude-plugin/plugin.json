@@ -1,0 +1,13 @@
+{
+  "name": "cr-homie",
+  "version": "3.1.1",
+  "description": "Evidence-based multi-agent code review: parallel security / testing / quality+API / SOLID / frontend reviewers plus a finding-verifier that proves or refutes each finding against the codebase, with P0–P3 merge-blocking severity.",
+  "author": {
+    "name": "YuArtian",
+    "url": "https://github.com/YuArtian"
+  },
+  "homepage": "https://github.com/YuArtian/cr-homie",
+  "repository": "https://github.com/YuArtian/cr-homie",
+  "license": "MIT",
+  "keywords": ["code-review", "multi-agent", "security", "verification"]
+}

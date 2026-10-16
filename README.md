@@ -4,6 +4,16 @@ An evidence-based code review skill for AI agents. Six specialized reviewers run
 
 ## Installation
 
+**Claude Code (recommended)** — installs as a plugin, so the reviewers are registered as real subagents (`cr-homie:security-reviewer`, …) and their `model` / `tools` settings apply:
+
+```bash
+/plugin install cr-homie --marketplace YuArtian/cr-homie
+```
+
+On Claude Code older than 2.1.275, run `/plugin marketplace add YuArtian/cr-homie` first, then `/plugin install cr-homie@cr-homie`.
+
+**Other agents / plain skill:**
+
 ```bash
 npx skills add YuArtian/cr-homie
 ```
@@ -28,7 +38,7 @@ npx skills add YuArtian/cr-homie
 - **HIGH SIGNAL only** — 9 explicit categories are silently dropped (linter-catchable, pre-existing, looks-like-a-bug-but-correct, pedantic nitpicks, speculative refactors, already-tested, generic advice, cross-agent duplicates, hypothetical future needs).
 - **Iron Law** — every finding MUST cite exact `file:line`, describe a realistic risk scenario, and propose a specific fix. No vague advice like "consider improving error handling".
 - **Review-first** — the skill reports findings and waits for your confirmation before implementing any fix.
-- **Shared meta-rules** — Iron Law, HIGH SIGNAL filter, Severity calibration, Verify Before Reporting, and Anti-Patterns live in a single file ([agents/_base-reviewer.md](agents/_base-reviewer.md)) inherited by every reviewer, so rules can't drift between agents.
+- **Shared meta-rules** — Iron Law, HIGH SIGNAL filter, Severity calibration, Verify Before Reporting, and Anti-Patterns live in a single file ([references/base-reviewer-rules.md](references/base-reviewer-rules.md)) inherited by every reviewer, so rules can't drift between agents.
 - **Multi-agent parallel** — domain-specific reviewers run concurrently on the same Preflight Context Block, reducing token pressure and improving coverage.
 - **Conditional activation** — frontend, page verification, and the API / removal sub-domains of the quality reviewer only activate when Preflight detects relevant signals.
 
@@ -62,7 +72,7 @@ Phase 3: Aggregation (orchestrator)
 
 1. **Phase 1: Preflight** ⛔ — First probes the repo (auto-detects the default branch via `git symbolic-ref refs/remotes/origin/HEAD` with fallback probes for `main` / `master` / `develop` / `trunk`; gracefully handles detached HEAD and repos without a remote). Then gathers the applicable scope signals (unstaged, staged, branch-vs-default) in parallel and picks based on current branch: on the default branch it falls back to uncommitted work; on a feature branch the branch diff is the default (so a tiny unstaged edit cannot mask a 20-commit branch). When multiple signals have content, shows a one-screen summary and lets you override before committing to a scope. Detects languages, frontend files, API surface, dead code signals, linter configs (ESLint/tsc/Prettier/Ruff/golangci-lint/etc. — controls HIGH SIGNAL linter-catchable filter), package manager consistency. If diff > 2000 lines OR > 15 files → two-pass mode (Pass 1 hotspot detection is orchestrator-inline, no separate agent; Pass 2 delivers hotspot-filtered context to agents while the verifier always gets the full diff). For `project` scope, enforces hard limits (300 files / 50k lines soft warn; 1k files / 150k lines hard gate that forces you to narrow or switch to hotspot-only mode).
 
-2. **Phase 2: Parallel agents** — 2 always run (security, testing) + quality (unless focus excludes) + solid (unless --quick) + frontend and page-verifier conditionally. All inherit shared rules from `agents/_base-reviewer.md`. Each agent must attach a `Verified:` line showing which callers / tests / framework behavior it checked before reporting.
+2. **Phase 2: Parallel agents** — 2 always run (security, testing) + quality (unless focus excludes) + solid (unless --quick) + frontend and page-verifier conditionally. All inherit shared rules from `references/base-reviewer-rules.md`. Each agent must attach a `Verified:` line showing which callers / tests / framework behavior it checked before reporting.
 
 3. **Phase 3: Aggregation** ⛔ — Deduplicates overlapping findings. `finding-verifier` then reads the full original diff (never the two-pass filtered slice) plus each finding's file:line context and returns one of four outcomes per finding. Safety overrides protect Security P0s (REFUTE requires strong, unambiguous evidence), fake-data-in-prod findings, and co-flagged locations (at least one must survive). The orchestrator then merges agent `Verified:` with verifier `Evidence:` into a single field, converts `file:line` to IDE-clickable markdown links, applies `--min-severity`, runs a final HIGH SIGNAL sweep, and asks you how to proceed.
 
@@ -164,7 +174,7 @@ Phase 3: Aggregation (orchestrator)
 | **P2** | Fix in this PR or create follow-up — defense-in-depth gap, code smell, missing edge tests |
 | **P3** | Optional — style, naming, minor optimization |
 
-Full calibration rules and examples: [agents/_base-reviewer.md](agents/_base-reviewer.md).
+Full calibration rules and examples: [references/base-reviewer-rules.md](references/base-reviewer-rules.md).
 
 ## Review agents
 
@@ -178,16 +188,18 @@ Full calibration rules and examples: [agents/_base-reviewer.md](agents/_base-rev
 | `page-verifier` | Runtime page verification via Chrome DevTools MCP | inherit | If `--verify` + `--url` + MCP available |
 | `finding-verifier` | Evidence-based verification (replaces confidence scoring) | inherit | Always in Phase 3 |
 
-Shared meta-rules inherited by every reviewer live in [agents/_base-reviewer.md](agents/_base-reviewer.md).
+Shared meta-rules inherited by every reviewer live in [references/base-reviewer-rules.md](references/base-reviewer-rules.md).
 
 ## Structure
 
 ```text
 cr-homie/
+├── .claude-plugin/
+│   ├── plugin.json                      # Claude Code plugin manifest (registers agents/ as cr-homie:<agent>)
+│   └── marketplace.json                 # Single-plugin marketplace for /plugin install
 ├── SKILL.md                             # 3-phase orchestration workflow
 ├── agents/
 │   ├── agent.yaml                       # Skill interface metadata
-│   ├── _base-reviewer.md                # Shared meta-rules (Iron Law, HIGH SIGNAL, Severity, Verify, Anti-Patterns, output format)
 │   ├── security-reviewer.md             # Security + reliability + package manager consistency
 │   ├── quality-reviewer.md              # Runtime quality + API contracts + dead code removal
 │   ├── solid-reviewer.md                # SOLID + architecture smells
@@ -196,6 +208,7 @@ cr-homie/
 │   ├── page-verifier.md                 # Runtime page verification (conditional)
 │   └── finding-verifier.md              # Evidence-based verification agent (Phase 3)
 └── references/                          # Knowledge base (loaded by each agent)
+    ├── base-reviewer-rules.md           # Shared meta-rules (Iron Law, HIGH SIGNAL, Severity, Verify, Anti-Patterns, output format)
     ├── security-checklist.md            # OWASP risks, race conditions, crypto, supply chain, attack-chain verification procedure
     ├── code-quality-checklist.md        # Error handling, N+1, caching, boundaries, observability
     ├── api-contract-checklist.md        # Breaking changes, backward compatibility, versioning
