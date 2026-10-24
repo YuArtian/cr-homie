@@ -42,3 +42,11 @@ Cases built from internal repositories live in `evals-private/`, which is git-ig
 ```bash
 evals/run.sh --eval-dir evals-private --runs 3 --ablation none
 ```
+
+For the full baseline on a subscription, use `evals/batch.py` instead. A subscription session window covers only about $45 (list price) of cr-homie runs, so the baseline takes many windows. The script runs one case at a time with both arms back to back, skips cases that already finished, stops on a usage-limit or login error (exit 3), and stops once `--budget` is spent in the current window:
+
+```bash
+python3 -I evals/batch.py --budget 35            # run again in the next window to continue
+python3 -I evals/batch.py --merge                # → evals-private/results/baseline-{crhomie,codereview}.json
+python3 -I evals/score.py evals-private/results/baseline-crhomie.json evals-private/results/baseline-codereview.json
+```
