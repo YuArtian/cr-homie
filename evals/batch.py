@@ -11,7 +11,8 @@ its runs finished without error; later invocations skip those, so a run that
 stops on a subscription session limit, an expired login or the budget picks up
 where it left off.
 
-Stops (exit 3) as soon as a run fails on a usage limit or authentication error:
+Retries an arm once when its only errors are timeouts (a run that stalled
+mid-stream). Stops (exit 3) as soon as a run fails on a usage limit or authentication error:
 retrying before the window resets would only burn more failed runs. Stops
 (exit 4) on any other run error, keeping the result as <case>.<arm>.partial.json
 for inspection. Stops (exit 0) before starting a case once --budget USD of list
@@ -105,9 +106,15 @@ def main():
             print(f"budget reached (${spent:.2f}); next case: {case}")
             return
         for arm, flag in todo:
-            result, errors = run_arm(case, flag, args.runs, args.jobs, out_dir / f"{case}.{arm}.json")
-            spent += result.get("costUsd") or 0
-            print(f"{case} {arm}: ${result.get('costUsd') or 0:.2f}, {len(errors)} errored run(s); spent ${spent:.2f}", flush=True)
+            for attempt in (1, 2):
+                result, errors = run_arm(case, flag, args.runs, args.jobs, out_dir / f"{case}.{arm}.json")
+                spent += result.get("costUsd") or 0
+                print(f"{case} {arm}: ${result.get('costUsd') or 0:.2f}, {len(errors)} errored run(s); spent ${spent:.2f}", flush=True)
+                # A run that stalls mid-stream (no API activity until the harness kills it) is transient: retry the arm once.
+                if attempt == 1 and errors and all(e.startswith("timed out") for e in errors):
+                    print(f"{case} {arm}: retrying after a timeout", flush=True)
+                    continue
+                break
             if any(m in e for e in errors for m in LIMIT_MARKERS):
                 print(f"stopped on a usage limit / login error: {errors[0][:160]}")
                 sys.exit(3)
