@@ -41,11 +41,18 @@ def runs_of(result):
     return [r for c in result["cases"] for r in c["arms"].get("with", [])]
 
 
+def run_error(r):
+    # A judge call that fails (e.g. the login expired mid-run) is recorded as a failed
+    # grade, not as a run error; treat it as an error so the run is not scored as a miss.
+    return r.get("error") or next((g["explanation"] for g in r.get("graders", [])
+                                   if (g.get("explanation") or "").startswith("grader threw")), None)
+
+
 def finished(path, runs):
     if not path.exists():
         return False
     rs = runs_of(json.loads(path.read_text()))
-    return len(rs) == runs and not any(r.get("error") for r in rs)
+    return len(rs) == runs and not any(run_error(r) for r in rs)
 
 
 def run_arm(case, flag, runs, jobs, out):
@@ -58,7 +65,7 @@ def run_arm(case, flag, runs, jobs, out):
     if not tmp.exists():
         sys.exit(f"{case}: no result written; see {log}")
     result = json.loads(tmp.read_text())
-    errors = [r["error"] for r in runs_of(result) if r.get("error")]
+    errors = [e for e in map(run_error, runs_of(result)) if e]
     if not errors and len(runs_of(result)) == runs:
         tmp.replace(out)
     else:
