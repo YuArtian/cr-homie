@@ -52,7 +52,8 @@ def finished(path, runs):
     if not path.exists():
         return False
     rs = runs_of(json.loads(path.read_text()))
-    return len(rs) == runs and not any(run_error(r) for r in rs)
+    # >= so a later pass with fewer --runs keeps cases that already have more runs.
+    return len(rs) >= runs and not any(run_error(r) for r in rs)
 
 
 def run_arm(case, flag, runs, jobs, out):
