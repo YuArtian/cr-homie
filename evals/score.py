@@ -6,7 +6,8 @@
 Grader naming conventions (see evals/README.md):
   bug-<id>           a labeled bug; its body states "labeled severity Px"
   trap-<n> / trap-*  a known-safe pattern that must not be reported at P0–P2
-  no-high-findings   clean case: no P0/P1 findings
+  no-high-findings   clean case: no P0/P1 findings (read from the JSON report when
+                     there is one; the LLM verdict only for markdown reports)
   others             process checks (json-valid, *-dispatched), reported separately
 
 Metrics per input file:
@@ -60,6 +61,15 @@ def review_json(run):
     return None
 
 
+def evidence_json(grader):
+    """The review.json a file-focused grader saw, when its evidence is a whole JSON report."""
+    try:
+        rep = json.loads(grader.get("evidence") or "")
+    except ValueError:
+        return None
+    return rep if isinstance(rep, dict) and "findings" in rep else None
+
+
 def summarize(path, unlabeled):
     data = json.loads(Path(path).read_text())
     rows = []
@@ -81,6 +91,7 @@ def summarize(path, unlabeled):
         if run.get("error"):
             errors.append(f"{name}: {run['error']}")
         hits_this_run = 0
+        report = review_json(run)
         for g in run.get("graders", []):
             gname, ok = g.get("name", ""), bool(g.get("passed"))
             if gname.startswith("bug-"):
@@ -96,9 +107,13 @@ def summarize(path, unlabeled):
                 trap_total += 1
                 trap_ok += ok
             elif gname == "no-high-findings":
+                # A JSON report states its severities, so read them instead of trusting
+                # the LLM judge, which has failed reports with no P0/P1 finding at all.
+                rep = report if report is not None else evidence_json(g)
+                if rep is not None:
+                    ok = not any(f.get("severity") in ("P0", "P1") for f in rep.get("findings", []))
                 clean_runs += 1
                 clean_fp += not ok
-        report = review_json(run)
         if report is not None:
             sev_ok = [f for f in report.get("findings", []) if f.get("severity") in ("P0", "P1", "P2")]
             findings_p012 += len(sev_ok)
